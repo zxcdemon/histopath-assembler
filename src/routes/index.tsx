@@ -17,7 +17,7 @@ import {
   Minus,
   Plus,
   Maximize2,
-  Hand,
+  Move,
   Info,
   RotateCcw,
   ChevronUp,
@@ -84,7 +84,7 @@ function Workspace() {
         <NavRail />
         {/* Mobile nav */}
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
-          <SheetContent side="left" className="p-0 w-[240px]">
+          <SheetContent side="left" className="p-0 w-[104px] sm:max-w-[104px] border-r-0">
             <SheetTitle className="sr-only">Навигация</SheetTitle>
             <NavRail mobile />
           </SheetContent>
@@ -199,7 +199,7 @@ function NavRail({ mobile = false }: { mobile?: boolean }) {
   ];
   return (
     <nav
-      className={`${mobile ? "flex" : "hidden lg:flex"} w-[88px] shrink-0 border-r border-border bg-panel flex-col items-stretch py-3`}
+      className={`${mobile ? "flex w-full" : "hidden lg:flex w-[88px]"} shrink-0 border-r border-border bg-panel flex-col items-stretch py-3`}
     >
       <div className="flex flex-col gap-1 px-2">
         {items.map((it) => (
@@ -308,7 +308,7 @@ function Canvas({
         </IconBtn>
         <div className="w-px h-5 bg-border mx-1" />
         <IconBtn aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
-        <IconBtn aria-label="Панорама"><Hand className="h-4 w-4" /></IconBtn>
+        <IconBtn aria-label="Панорама"><Move className="h-4 w-4" /></IconBtn>
       </div>
     </div>
   );
@@ -443,17 +443,27 @@ function FragmentParams({
           <span className="text-sm font-medium">Маркеры туши</span>
           <Switch checked={inkOn} onCheckedChange={setInkOn} />
         </div>
-        <ul className="space-y-1.5">
-          {INK_MARKERS.map((m) => (
-            <li key={m.label} className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: m.color }} />
-              <div className="flex-1 h-1 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full w-2/3" style={{ backgroundColor: m.color, opacity: 0.6 }} />
-              </div>
-              <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs w-4 text-right">{m.count}</span>
-            </li>
-          ))}
+        <ul className="space-y-2.5">
+          {INK_MARKERS.map((m) => {
+            const pct = 66;
+            return (
+              <li key={m.label} className="flex items-center gap-2.5">
+                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
+                <div className="relative flex-1 h-1.5 rounded-full bg-secondary">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full"
+                    style={{ width: `${pct}%`, backgroundColor: m.color, opacity: 0.55 }}
+                  />
+                  <span
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-panel border-2 shadow-sm"
+                    style={{ left: `${pct}%`, borderColor: m.color }}
+                  />
+                </div>
+                <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs w-4 text-right tabular-nums">{m.count}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
 
