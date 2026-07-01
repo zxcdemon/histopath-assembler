@@ -29,7 +29,7 @@ export function MascotAssistant() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Открыть помощника"
-        className="fixed bottom-4 right-4 z-50 h-14 w-14 rounded-full bg-panel shadow-float border border-border hover:scale-105 transition-transform overflow-hidden md:bottom-6 md:right-6"
+        className="fixed bottom-4 right-4 z-50 h-16 w-16 rounded-full bg-panel shadow-float border border-border hover:scale-105 transition-transform overflow-hidden md:bottom-6 md:right-6"
       >
         <MascotImage variant="small" className="w-full h-full" />
         <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-primary ring-2 ring-panel" />
@@ -39,27 +39,27 @@ export function MascotAssistant() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6 max-w-[calc(100vw-2rem)]">
-      <div className="relative flex items-center gap-3 rounded-2xl bg-panel border border-border shadow-float pl-4 pr-3 py-3 w-[320px] md:w-[360px]">
+      <div className="relative flex items-stretch gap-4 rounded-2xl bg-panel border border-border shadow-float pl-5 pr-4 pt-5 pb-5 w-[440px] md:w-[480px]">
         <button
           onClick={() => setOpen(false)}
           aria-label="Закрыть"
-          className="absolute top-2 right-2 h-6 w-6 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center"
+          className="absolute top-2.5 right-2.5 h-7 w-7 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="flex-1 min-w-0 pr-6">
-          <div className="text-sm font-medium text-foreground leading-tight">
-            {status ? "Секунду…" : "Нужна помощь со схемой?"}
+        <div className="flex-1 min-w-0 pr-2 flex flex-col justify-center">
+          <div className="text-[17px] font-semibold text-foreground leading-snug">
+            {status ? "Секунду…" : "Нужна помощь\u00a0со схемой?"}
           </div>
           {status ? (
-            <div className="mt-1 text-xs text-muted-foreground">{status}</div>
+            <div className="mt-2 text-sm text-muted-foreground">{status}</div>
           ) : (
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" onClick={handleAuto} className="h-8 px-3">
+            <div className="mt-3.5 flex gap-2">
+              <Button onClick={handleAuto} className="h-9 px-4 text-sm">
                 Сделай сам
               </Button>
-              <Button size="sm" variant="outline" onClick={handleSuggest} className="h-8 px-3">
+              <Button variant="outline" onClick={handleSuggest} className="h-9 px-4 text-sm">
                 Предложи
               </Button>
             </div>
@@ -69,9 +69,9 @@ export function MascotAssistant() {
         <button
           onClick={handleAuto}
           aria-label="Спросить помощника"
-          className="shrink-0 h-16 w-16 rounded-xl overflow-hidden bg-secondary/50 hover:scale-105 transition-transform"
+          className="shrink-0 self-end -mb-3 -mr-1 hover:scale-105 transition-transform"
         >
-          <MascotImage variant="main" className="w-full h-full" />
+          <MascotImage variant="main" className="h-40 w-32 md:h-44 md:w-36" />
         </button>
       </div>
     </div>

@@ -163,24 +163,11 @@ function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
       >
         <Menu className="h-5 w-5" />
       </button>
-      <div className="hidden md:flex h-8 w-8 rounded-md overflow-hidden border border-border shrink-0">
-        <div
-          className="w-full h-full"
-          style={{
-            backgroundImage: `url(${histologyAsset.url})`,
-            backgroundSize: "200%",
-            backgroundPosition: "30% 40%",
-          }}
-        />
-      </div>
-      <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">
-        Виртуальная гистотопограмма
-      </h1>
-      <div className="hidden md:flex items-center gap-2 ml-3 px-3 h-9 rounded-lg border border-border bg-background text-sm">
-        <Folder className="h-4 w-4 text-muted-foreground" />
+      <div className="hidden md:flex items-center gap-2 px-3.5 h-10 min-w-[320px] rounded-lg border border-border bg-background text-sm whitespace-nowrap">
+        <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-muted-foreground">Кейс:</span>
         <span className="font-medium">2025-05-20_Печень_Биопсия</span>
-        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
       </div>
       <div className="ml-auto flex items-center gap-1">
         <IconBtn aria-label="Отменить"><Undo2 className="h-4 w-4" /></IconBtn>
