@@ -31,6 +31,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
 import { MascotAssistant } from "@/components/MascotAssistant";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import histologyAsset from "@/assets/histology.png.asset.json";
 
 export const Route = createFileRoute("/")({
@@ -70,23 +71,38 @@ function Workspace() {
   const [navOpen, setNavOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
+  const [section, setSection] = useState<string>("layout");
 
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
     [selectedId],
   );
 
+  const handleSection = (id: string) => {
+    setSection(id);
+    setNavOpen(false);
+    const labels: Record<string, string> = {
+      import: "Импорт", markers: "Маркеры", layout: "Макет",
+      registration: "Регистрация", preview: "Просмотр",
+      settings: "Настройки", help: "Помощь",
+    };
+    if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
       <TopBar onOpenNav={() => setNavOpen(true)} />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
-        <NavRail />
+        <NavRail active={section} onSelect={handleSection} />
         {/* Mobile nav */}
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
-          <SheetContent side="left" className="p-0 w-[104px] sm:max-w-[104px] border-r-0">
+          <SheetContent
+            side="left"
+            className="p-0 w-[104px] sm:max-w-[104px] border-r-0 [&>button.absolute]:hidden"
+          >
             <SheetTitle className="sr-only">Навигация</SheetTitle>
-            <NavRail mobile />
+            <NavRail mobile active={section} onSelect={handleSection} onClose={() => setNavOpen(false)} />
           </SheetContent>
         </Sheet>
 
@@ -189,40 +205,63 @@ function IconBtn({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonEl
   );
 }
 
-function NavRail({ mobile = false }: { mobile?: boolean }) {
+function NavRail({
+  mobile = false,
+  active = "layout",
+  onSelect,
+  onClose,
+}: {
+  mobile?: boolean;
+  active?: string;
+  onSelect?: (id: string) => void;
+  onClose?: () => void;
+}) {
   const items = [
-    { icon: Upload, label: "Импорт" },
-    { icon: MapPin, label: "Маркеры" },
-    { icon: LayoutGrid, label: "Макет", active: true },
-    { icon: Crosshair, label: "Регистрация" },
-    { icon: Eye, label: "Просмотр" },
+    { id: "import", icon: Upload, label: "Импорт" },
+    { id: "markers", icon: MapPin, label: "Маркеры" },
+    { id: "layout", icon: LayoutGrid, label: "Макет" },
+    { id: "registration", icon: Crosshair, label: "Регистрация" },
+    { id: "preview", icon: Eye, label: "Просмотр" },
   ];
+  const bottomItems = [
+    { id: "settings", icon: Settings, label: "Настройки" },
+    { id: "help", icon: HelpCircle, label: "Помощь" },
+  ];
+  const btnCls = (id: string) =>
+    `flex flex-col items-center justify-center gap-1 py-2.5 rounded-lg text-[11px] font-medium transition-colors ${
+      active === id
+        ? "bg-accent text-primary"
+        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+    }`;
   return (
     <nav
       className={`${mobile ? "flex w-full" : "hidden lg:flex w-[88px]"} shrink-0 border-r border-border bg-panel flex-col items-stretch py-3`}
     >
+      {mobile && (
+        <button
+          onClick={onClose}
+          aria-label="Свернуть меню"
+          className="mx-2 mb-2 flex flex-col items-center gap-1 py-2.5 rounded-lg text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+        >
+          <Menu className="h-5 w-5" />
+          <span>Меню</span>
+        </button>
+      )}
       <div className="flex flex-col gap-1 px-2">
         {items.map((it) => (
-          <button
-            key={it.label}
-            className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-lg text-[11px] font-medium transition-colors ${
-              it.active
-                ? "bg-accent text-primary"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-            }`}
-          >
+          <button key={it.id} onClick={() => onSelect?.(it.id)} className={btnCls(it.id)}>
             <it.icon className="h-5 w-5" />
             <span>{it.label}</span>
           </button>
         ))}
       </div>
       <div className="mt-auto flex flex-col gap-1 px-2">
-        <button className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-[11px] text-muted-foreground hover:bg-secondary">
-          <Settings className="h-5 w-5" /> <span>Настройки</span>
-        </button>
-        <button className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-[11px] text-muted-foreground hover:bg-secondary">
-          <HelpCircle className="h-5 w-5" /> <span>Помощь</span>
-        </button>
+        {bottomItems.map((it) => (
+          <button key={it.id} onClick={() => onSelect?.(it.id)} className={btnCls(it.id)}>
+            <it.icon className="h-5 w-5" />
+            <span>{it.label}</span>
+          </button>
+        ))}
       </div>
     </nav>
   );
