@@ -2,7 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { MascotImage } from "./Mascot";
+import mascotHero from "@/assets/mascot-hero.png";
 
 export function MascotAssistant() {
   const [open, setOpen] = useState(true);
@@ -29,26 +29,30 @@ export function MascotAssistant() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Открыть помощника"
-        className="fixed bottom-4 right-4 z-50 h-16 w-16 rounded-full bg-panel shadow-float border border-border hover:scale-105 transition-transform overflow-hidden md:bottom-6 md:right-6"
+        className="fixed bottom-4 right-4 z-50 h-16 w-16 rounded-full bg-panel shadow-float border border-border hover:scale-105 transition-transform overflow-hidden md:bottom-6 md:right-6 flex items-end justify-center"
       >
-        <MascotImage variant="small" className="w-full h-full" />
+        <img
+          src={mascotHero}
+          alt=""
+          className="h-[130%] w-auto object-contain object-bottom"
+        />
         <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-primary ring-2 ring-panel" />
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6 max-w-[calc(100vw-2rem)]">
-      <div className="relative flex items-stretch gap-4 rounded-2xl bg-panel border border-border shadow-float pl-5 pr-4 pt-5 pb-5 w-[440px] md:w-[480px]">
+    <div className="fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6 max-w-[calc(100vw-2rem)] pt-16">
+      <div className="relative rounded-2xl bg-panel border border-border shadow-float px-5 py-4 w-[380px] md:w-[420px]">
         <button
           onClick={() => setOpen(false)}
           aria-label="Закрыть"
-          className="absolute top-2.5 right-2.5 h-7 w-7 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center"
+          className="absolute top-2.5 right-2.5 h-7 w-7 rounded-md text-muted-foreground hover:bg-secondary flex items-center justify-center z-10"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="flex-1 min-w-0 pr-2 flex flex-col justify-center">
+        <div className="pr-[140px] md:pr-[160px]">
           <div className="text-[17px] font-semibold text-foreground leading-snug">
             {status ? "Секунду…" : "Нужна помощь\u00a0со схемой?"}
           </div>
@@ -66,12 +70,18 @@ export function MascotAssistant() {
           )}
         </div>
 
+        {/* Mascot overflows to the right and top of the card */}
         <button
           onClick={handleAuto}
           aria-label="Спросить помощника"
-          className="shrink-0 self-end -mb-3 -mr-1 hover:scale-105 transition-transform"
+          className="absolute right-2 md:right-3 bottom-0 hover:scale-[1.03] transition-transform origin-bottom"
         >
-          <MascotImage variant="main" className="h-40 w-32 md:h-44 md:w-36" />
+          <img
+            src={mascotHero}
+            alt="Помощник"
+            className="h-[190px] md:h-[210px] w-auto object-contain drop-shadow-[0_8px_16px_rgba(30,40,80,0.15)] select-none"
+            draggable={false}
+          />
         </button>
       </div>
     </div>
