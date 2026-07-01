@@ -70,23 +70,38 @@ function Workspace() {
   const [navOpen, setNavOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
+  const [section, setSection] = useState<string>("layout");
 
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
     [selectedId],
   );
 
+  const handleSection = (id: string) => {
+    setSection(id);
+    setNavOpen(false);
+    const labels: Record<string, string> = {
+      import: "Импорт", markers: "Маркеры", layout: "Макет",
+      registration: "Регистрация", preview: "Просмотр",
+      settings: "Настройки", help: "Помощь",
+    };
+    if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
       <TopBar onOpenNav={() => setNavOpen(true)} />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
-        <NavRail />
+        <NavRail active={section} onSelect={handleSection} />
         {/* Mobile nav */}
         <Sheet open={navOpen} onOpenChange={setNavOpen}>
-          <SheetContent side="left" className="p-0 w-[104px] sm:max-w-[104px] border-r-0">
+          <SheetContent
+            side="left"
+            className="p-0 w-[104px] sm:max-w-[104px] border-r-0 [&>button.absolute]:hidden"
+          >
             <SheetTitle className="sr-only">Навигация</SheetTitle>
-            <NavRail mobile />
+            <NavRail mobile active={section} onSelect={handleSection} onClose={() => setNavOpen(false)} />
           </SheetContent>
         </Sheet>
 
