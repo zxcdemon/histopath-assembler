@@ -658,6 +658,13 @@ function Workspace() {
             eraseNear={eraseNear}
             snapshotStrokes={snapshotStrokes}
             matchedColorsByFragment={matchedColorsByFragment}
+            registrationMode={registrationMode}
+            regMode={mode}
+            regPair={regPair}
+            controlPoints={controlPoints}
+            addControlPoint={addControlPoint}
+            removeControlPoint={removeControlPoint}
+            pendingPlacements={pendingPlacements}
           />
 
 
