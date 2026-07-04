@@ -24,7 +24,8 @@ import {
   FlipHorizontal,
 
   ChevronUp,
-  X,
+
+
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,12 +68,15 @@ const INK_MARKERS = [
 ];
 
 type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean };
+type InkLevels = Record<string, number>;
+
+const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
   const [mode, setMode] = useState<"auto" | "semi" | "manual">("auto");
   const [inkOn, setInkOn] = useState(true);
-  const [zoom, setZoom] = useState(28);
+  const [zoom, setZoom] = useState(100);
   const [navOpen, setNavOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
@@ -80,9 +84,27 @@ function Workspace() {
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])),
   );
+  const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
+    const init: InkLevels = {};
+    FRAGMENTS.forEach((f) =>
+      INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = 66)),
+    );
+    return init;
+  });
 
   const updatePlacement = (id: string, patch: Partial<Placement>) =>
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+
+  const resetPlacement = (id: string) => {
+    const src = FRAGMENTS.find((f) => f.id === id);
+    if (src) {
+      setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
+      toast("Трансформации сброшены", { description: `Фрагмент ${id}` });
+    }
+  };
+
+  const setInkLevel = (fid: string, label: string, value: number) =>
+    setInkLevels((prev) => ({ ...prev, [inkKey(fid, label)]: value }));
 
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
@@ -148,6 +170,11 @@ function Workspace() {
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
           <FragmentParams
             fragment={selected}
+            placement={placements[selected.id]}
+            updatePlacement={updatePlacement}
+            resetPlacement={resetPlacement}
+            inkLevels={inkLevels}
+            setInkLevel={setInkLevel}
             mode={mode}
             setMode={setMode}
             inkOn={inkOn}
@@ -160,6 +187,11 @@ function Workspace() {
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
             <FragmentParams
               fragment={selected}
+              placement={placements[selected.id]}
+              updatePlacement={updatePlacement}
+              resetPlacement={resetPlacement}
+              inkLevels={inkLevels}
+              setInkLevel={setInkLevel}
               mode={mode}
               setMode={setMode}
               inkOn={inkOn}
@@ -168,6 +200,7 @@ function Workspace() {
           </SheetContent>
         </Sheet>
       </div>
+
 
       {/* Mobile params trigger */}
       <button
@@ -381,7 +414,12 @@ function Canvas({
       </div>
 
       {/* Fragments layer */}
-      <div ref={layerRef} className="absolute inset-6 md:inset-10">
+      <div
+        ref={layerRef}
+        className="absolute inset-6 md:inset-10 transition-transform"
+        style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
+      >
+
         {FRAGMENTS.map((f) => {
           const isSel = f.id === selectedId;
           const p = placements[f.id];
@@ -456,8 +494,9 @@ function Canvas({
           <Plus className="h-4 w-4" />
         </IconBtn>
         <div className="w-px h-5 bg-border mx-1" />
-        <IconBtn aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
+        <IconBtn onClick={() => setZoom(100)} aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
         <IconBtn aria-label="Панорама"><Move className="h-4 w-4" /></IconBtn>
+
       </div>
     </div>
   );
@@ -589,34 +628,84 @@ function BottomBar({
 
 function FragmentParams({
   fragment,
+  placement,
+  updatePlacement,
+  resetPlacement,
+  inkLevels,
+  setInkLevel,
   mode,
   setMode,
   inkOn,
   setInkOn,
 }: {
   fragment: Fragment;
+  placement: Placement;
+  updatePlacement: (id: string, patch: Partial<Placement>) => void;
+  resetPlacement: (id: string) => void;
+  inkLevels: InkLevels;
+  setInkLevel: (fid: string, label: string, value: number) => void;
   mode: "auto" | "semi" | "manual";
   setMode: (m: "auto" | "semi" | "manual") => void;
   inkOn: boolean;
   setInkOn: (b: boolean) => void;
 }) {
+  // Convert placement (% of canvas) to a pseudo-micrometer value for display.
+  const pctToMkm = (v: number) => Math.round(v * 100);
+  const mkmToPct = (v: number) => v / 100;
+
+  const copyId = async () => {
+    try {
+      await navigator.clipboard.writeText(fragment.id);
+      toast("ID скопирован", { description: fragment.id });
+    } catch {
+      toast("Не удалось скопировать");
+    }
+  };
+
   return (
     <div className="p-4 space-y-5">
       <div>
         <h3 className="text-base font-semibold">Фрагмент</h3>
         <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
           <span>ID: {fragment.id}</span>
-          <button className="h-6 w-6 rounded hover:bg-secondary flex items-center justify-center">
+          <button
+            onClick={copyId}
+            className="h-6 w-6 rounded hover:bg-secondary flex items-center justify-center"
+            aria-label="Скопировать ID"
+          >
             <Copy className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
       <div className="space-y-2.5">
-        <ParamRow label="Сдвиг X" value="-1,250" unit="мкм" />
-        <ParamRow label="Сдвиг Y" value="860" unit="мкм" />
-        <ParamRow label="Поворот" value={String(fragment.place.rot)} unit="°" />
-        <ParamRow label="Масштаб" value="100" unit="%" lock />
+        <ParamRow
+          label="Сдвиг X"
+          value={pctToMkm(placement.x)}
+          unit="мкм"
+          onChange={(v) => updatePlacement(fragment.id, { x: mkmToPct(v) })}
+        />
+        <ParamRow
+          label="Сдвиг Y"
+          value={pctToMkm(placement.y)}
+          unit="мкм"
+          onChange={(v) => updatePlacement(fragment.id, { y: mkmToPct(v) })}
+        />
+        <ParamRow
+          label="Поворот"
+          value={Math.round(placement.rot * 10) / 10}
+          unit="°"
+          step={0.5}
+          onChange={(v) => updatePlacement(fragment.id, { rot: v })}
+        />
+        <ParamRow
+          label="Масштаб"
+          value={Math.round(placement.w * 10) / 10}
+          unit="%"
+          onChange={(v) =>
+            updatePlacement(fragment.id, { w: Math.max(6, Math.min(80, v)) })
+          }
+        />
       </div>
 
       <div className="pt-2">
@@ -624,24 +713,44 @@ function FragmentParams({
           <span className="text-sm font-medium">Маркеры туши</span>
           <Switch checked={inkOn} onCheckedChange={setInkOn} />
         </div>
-        <ul className="space-y-2.5">
+        <ul className={`space-y-2.5 ${inkOn ? "" : "opacity-50 pointer-events-none"}`}>
           {INK_MARKERS.map((m) => {
-            const pct = 66;
+            const pct = inkLevels[inkKey(fragment.id, m.label)] ?? 66;
             return (
               <li key={m.label} className="flex items-center gap-2.5">
-                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
-                <div className="relative flex-1 h-1.5 rounded-full bg-secondary">
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full"
-                    style={{ width: `${pct}%`, backgroundColor: m.color, opacity: 0.55 }}
+                <span
+                  className="h-3 w-3 rounded-full shrink-0"
+                  style={{ backgroundColor: m.color }}
+                />
+                <div className="relative flex-1 h-4 flex items-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={pct}
+                    onChange={(e) =>
+                      setInkLevel(fragment.id, m.label, Number(e.target.value))
+                    }
+                    aria-label={`Маркер туши ${m.label}`}
+                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
                   />
-                  <span
-                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-panel border-2 shadow-sm"
-                    style={{ left: `${pct}%`, borderColor: m.color }}
-                  />
+                  <div className="relative flex-1 h-1.5 rounded-full bg-secondary">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full"
+                      style={{
+                        width: `${pct}%`,
+                        backgroundColor: m.color,
+                        opacity: 0.55,
+                      }}
+                    />
+                    <span
+                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-panel border-2 shadow-sm"
+                      style={{ left: `${pct}%`, borderColor: m.color }}
+                    />
+                  </div>
                 </div>
                 <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs w-4 text-right tabular-nums">{m.count}</span>
+                <span className="text-xs w-8 text-right tabular-nums">{pct}</span>
               </li>
             );
           })}
@@ -674,7 +783,11 @@ function FragmentParams({
         </div>
       </div>
 
-      <Button variant="outline" className="w-full h-9 gap-2">
+      <Button
+        variant="outline"
+        className="w-full h-9 gap-2"
+        onClick={() => resetPlacement(fragment.id)}
+      >
         <RotateCcw className="h-4 w-4" /> Сбросить трансформации
       </Button>
 
@@ -690,23 +803,30 @@ function ParamRow({
   label,
   value,
   unit,
-  lock = false,
+  step = 1,
+  onChange,
 }: {
   label: string;
-  value: string;
+  value: number;
   unit: string;
-  lock?: boolean;
+  step?: number;
+  onChange?: (v: number) => void;
 }) {
   return (
     <div className="flex items-center gap-2">
       <label className="text-xs text-muted-foreground w-16">{label}</label>
-      <Input defaultValue={value} className="h-8 text-sm flex-1" />
+      <Input
+        type="number"
+        step={step}
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (!Number.isNaN(v)) onChange?.(v);
+        }}
+        className="h-8 text-sm flex-1"
+      />
       <span className="text-xs text-muted-foreground w-8">{unit}</span>
-      {lock && (
-        <button className="h-6 w-6 rounded hover:bg-secondary flex items-center justify-center text-muted-foreground">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      )}
     </div>
   );
 }
+
