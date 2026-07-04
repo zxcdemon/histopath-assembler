@@ -480,6 +480,7 @@ function NavRail({
 }
 
 function Canvas({
+  fragments,
   selectedId,
   onSelect,
   zoom,
@@ -491,6 +492,8 @@ function Canvas({
   inkLevels,
   inkVisible,
 }: {
+  fragments: Fragment[];
+
   selectedId: string;
   onSelect: (id: string) => void;
   zoom: number;
