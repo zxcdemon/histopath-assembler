@@ -760,6 +760,25 @@ function Workspace() {
                 onExport={exportMarkers}
               />
             )}
+            {registrationMode && (
+              <RegistrationPanel
+                fragments={fragments}
+                controlPoints={controlPoints}
+                regPair={regPair}
+                setRegPair={setRegPair}
+                onRemoveControlPoint={removeControlPoint}
+                mode={mode}
+                setMode={setMode}
+                onRun={runRegistration}
+                onApply={applyPending}
+                onReject={rejectPending}
+                onReset={resetRegistration}
+                hasPending={!!pendingPlacements}
+                quality={regQuality}
+                residual={regResidual}
+                matches={matches}
+              />
+            )}
             <FragmentParams
               fragment={selected}
               placement={placements[selected.id]}
