@@ -464,7 +464,9 @@ function Canvas({
 function SelectionHandles({
   onResize,
   onRotate,
+  onFlip,
 }: {
+
   onResize: (e: ReactPointerEvent) => void;
   onRotate: (e: ReactPointerEvent) => void;
   onFlip: (e: ReactPointerEvent) => void;
