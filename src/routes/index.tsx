@@ -1959,11 +1959,22 @@ function BottomBar({
   selectedId,
   onSelect,
   onCollapse,
+  metrics,
+  onShowDetails,
 }: {
   fragments: Fragment[];
   selectedId: string;
   onSelect: (id: string) => void;
   onCollapse: () => void;
+  metrics: {
+    score: number;
+    matchCount: number;
+    errorCount: number;
+    warningCount: number;
+    statusText: string;
+    statusTone: "good" | "check" | "issues";
+  };
+  onShowDetails: () => void;
 }) {
   return (
     <div className="shrink-0 bg-panel border-t border-border px-3 md:px-4 py-3">
