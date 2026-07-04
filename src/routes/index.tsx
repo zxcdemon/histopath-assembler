@@ -893,8 +893,26 @@ function Workspace() {
       return { ok: false, error: msg };
     }
     setGhostPlacements(res.placements);
+    // Refine via backend if it's available for this case.
+    if (be.backendCaseId) {
+      be.setRegistering(true);
+      backend
+        .register(be.backendCaseId, {
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          currentTransforms: placementsToTransforms(placements, fragments),
+        })
+        .then((r) => {
+          const refined = transformsToPlacements(r.proposedTransforms, placements, fragments);
+          setGhostPlacements(refined);
+          setBackendMetrics(r.metrics);
+          toast.success("Подсказка обновлена по данным backend");
+        })
+        .catch((e) => toast.error("Backend register не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setRegistering(false));
+    }
     return { ok: true };
-  }, [computeAutoProposal]);
+  }, [computeAutoProposal, be, strokes, placements, fragments]);
 
   const assistantApplySuggestion = useCallback(() => {
     if (!ghostPlacements) return;
@@ -924,8 +942,28 @@ function Workspace() {
     setPendingPlacements(res.placements);
     setRegQuality(res.quality ?? "check");
     setRegResidual(null);
+    // Refine with backend if available; overrides pending with server proposal.
+    if (be.backendCaseId) {
+      be.setRegistering(true);
+      backend
+        .register(be.backendCaseId, {
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          currentTransforms: placementsToTransforms(placements, fragments),
+        })
+        .then((r) => {
+          const refined = transformsToPlacements(r.proposedTransforms, placements, fragments);
+          setPendingPlacements(refined);
+          setBackendMetrics(r.metrics);
+          toast.success("Сборка предложена backend", {
+            description: `Пары: ${r.metrics.matchCount} · score ${r.metrics.score}`,
+          });
+        })
+        .catch((e) => toast.error("Backend register не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setRegistering(false));
+    }
     return { ok: true };
-  }, [computeAutoProposal]);
+  }, [computeAutoProposal, be, strokes, placements, fragments]);
 
 
   const importFragments = (newFragments: Fragment[]) => {
