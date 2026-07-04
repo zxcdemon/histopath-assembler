@@ -602,7 +602,8 @@ function Canvas({
         style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
       >
 
-        {FRAGMENTS.map((f) => {
+        {fragments.map((f) => {
+
           const isSel = f.id === selectedId;
           const p = placements[f.id];
           return (
