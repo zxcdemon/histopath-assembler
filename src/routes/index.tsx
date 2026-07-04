@@ -1213,8 +1213,12 @@ function Canvas({
                 <div
                   className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden relative"
                   style={{
-                    outline: isSel ? "2px solid var(--primary)" : "none",
-                    outlineOffset: isSel ? 2 : 0,
+                    outline: isPreview
+                      ? "2px dashed color-mix(in oklch, var(--primary) 80%, transparent)"
+                      : isInPair && registrationMode
+                        ? "2px solid color-mix(in oklch, var(--primary) 70%, transparent)"
+                        : isSel ? "2px solid var(--primary)" : "none",
+                    outlineOffset: isSel || isPreview || isInPair ? 2 : 0,
                   }}
                 >
                   <FragmentImage
