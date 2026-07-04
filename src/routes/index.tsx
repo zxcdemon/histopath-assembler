@@ -800,20 +800,6 @@ function Canvas({
     window.addEventListener("pointerup", up);
   };
 
-  return (
-    <div className="relative flex-1 min-h-0 bg-canvas overflow-hidden">
-      {/* Guides */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute left-1/2 top-0 bottom-0 w-px border-l border-dashed border-border/80" />
-        <div className="absolute top-1/2 left-0 right-0 h-px border-t border-dashed border-border/80" />
-      </div>
-
-      {/* Fragments layer */}
-      <div
-        ref={layerRef}
-        className="absolute inset-6 md:inset-10 transition-transform"
-        style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
-      >
 
   const startPaint = (id: string) => (e: ReactPointerEvent) => {
     e.stopPropagation();
