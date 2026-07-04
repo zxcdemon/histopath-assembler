@@ -1278,6 +1278,7 @@ function Canvas({
   addControlPoint: (fid: string, x: number, y: number) => void;
   removeControlPoint: (id: string) => void;
   pendingPlacements: Record<string, Placement> | null;
+  ghostPlacements?: Record<string, Placement> | null;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
