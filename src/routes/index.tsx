@@ -425,6 +425,16 @@ function Workspace() {
             inkOn={inkOn}
             inkLevels={inkLevels}
             inkVisible={inkVisible}
+            paintMode={paintMode}
+            strokes={strokes}
+            brushColor={brushColor}
+            brushSize={brushSize}
+            brushTool={brushTool}
+            addStroke={addStroke}
+            updateStrokePoints={updateStrokePoints}
+            eraseNear={eraseNear}
+            snapshotStrokes={snapshotStrokes}
+            matchedColorsByFragment={matchedColorsByFragment}
           />
 
 
@@ -448,6 +458,23 @@ function Workspace() {
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
+          {paintMode && (
+            <MarkerTools
+              fragment={selected}
+              strokes={strokes}
+              matches={matches}
+              brushColor={brushColor}
+              setBrushColor={setBrushColor}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              brushTool={brushTool}
+              setBrushTool={setBrushTool}
+              onUndo={undoStroke}
+              canUndo={strokePast.length > 0}
+              onClear={() => clearFragmentStrokes(selected.id)}
+              onExport={exportMarkers}
+            />
+          )}
           <FragmentParams
             fragment={selected}
             placement={placements[selected.id]}
@@ -467,6 +494,23 @@ function Workspace() {
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
           <SheetContent side="right" className="p-0 w-[320px] max-w-[90vw] overflow-y-auto">
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
+            {paintMode && (
+              <MarkerTools
+                fragment={selected}
+                strokes={strokes}
+                matches={matches}
+                brushColor={brushColor}
+                setBrushColor={setBrushColor}
+                brushSize={brushSize}
+                setBrushSize={setBrushSize}
+                brushTool={brushTool}
+                setBrushTool={setBrushTool}
+                onUndo={undoStroke}
+                canUndo={strokePast.length > 0}
+                onClear={() => clearFragmentStrokes(selected.id)}
+                onExport={exportMarkers}
+              />
+            )}
             <FragmentParams
               fragment={selected}
               placement={placements[selected.id]}
