@@ -22,6 +22,11 @@
 ## Быстрый старт (полный запуск)
 
 ```bash
+# 0. Проверка конфигов (опционально)
+docker compose config
+python -m py_compile backend/main.py
+python -m py_compile backend/services/*.py
+
 # 1. Backend (Docker)
 docker compose up --build
 # 2. Проверка
