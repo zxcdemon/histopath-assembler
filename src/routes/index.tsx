@@ -1897,4 +1897,260 @@ function MarkerTools({
   );
 }
 
+function RegistrationPanel({
+  fragments,
+  controlPoints,
+  regPair,
+  setRegPair,
+  onRemoveControlPoint,
+  mode,
+  setMode,
+  onRun,
+  onApply,
+  onReject,
+  onReset,
+  hasPending,
+  quality,
+  residual,
+  matches,
+}: {
+  fragments: Fragment[];
+  controlPoints: ControlPoint[];
+  regPair: [string, string] | null;
+  setRegPair: (p: [string, string] | null) => void;
+  onRemoveControlPoint: (id: string) => void;
+  mode: "auto" | "semi" | "manual";
+  setMode: (m: "auto" | "semi" | "manual") => void;
+  onRun: () => void;
+  onApply: () => void;
+  onReject: () => void;
+  onReset: () => void;
+  hasPending: boolean;
+  quality: RegQuality | null;
+  residual: number | null;
+  matches: { a: string; b: string; colors: string[] }[];
+}) {
+  const pairIds = regPair
+    ? [
+        ...new Set(
+          controlPoints
+            .filter((cp) => cp.fragmentId === regPair[0] || cp.fragmentId === regPair[1])
+            .map((cp) => cp.pairId),
+        ),
+      ].sort((a, b) => a - b)
+    : [];
+  const completePairs = pairIds.filter((pid) => {
+    if (!regPair) return false;
+    const hasA = controlPoints.some((cp) => cp.pairId === pid && cp.fragmentId === regPair[0]);
+    const hasB = controlPoints.some((cp) => cp.pairId === pid && cp.fragmentId === regPair[1]);
+    return hasA && hasB;
+  });
+
+  const qualityLabel: Record<RegQuality, { label: string; cls: string }> = {
+    good: { label: "Хорошо", cls: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30" },
+    check: { label: "Требует проверки", cls: "text-amber-600 bg-amber-500/10 border-amber-500/30" },
+    bad: { label: "Плохо", cls: "text-red-600 bg-red-500/10 border-red-500/30" },
+  };
+
+  // Suggested pairs = marker matches + all combinations up to a limit.
+  const suggested = matches.slice(0, 6);
+
+  return (
+    <div className="p-4 space-y-4 border-b border-border bg-accent/30">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Регистрация</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Совмещение фрагментов в едином масштабе.
+          </p>
+        </div>
+        <Crosshair className="h-5 w-5 text-primary" />
+      </div>
+
+      {/* Mode selector */}
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1 text-xs font-medium">
+        {[
+          { id: "auto", label: "Авто" },
+          { id: "semi", label: "Полуавто" },
+          { id: "manual", label: "Ручной" },
+        ].map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setMode(m.id as "auto" | "semi" | "manual")}
+            className={`py-1.5 rounded-md transition-colors ${
+              mode === m.id ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "manual" && (
+        <div className="rounded-lg border border-border bg-panel p-2.5 text-[11px] text-muted-foreground">
+          Тяните фрагмент за корпус, за угловой маркер — масштаб, за верхний — поворот. Все изменения сохраняются автоматически.
+        </div>
+      )}
+
+      {mode === "semi" && (
+        <div className="space-y-2.5">
+          <div className="text-xs text-muted-foreground">Пара фрагментов</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <select
+              value={regPair?.[0] ?? ""}
+              onChange={(e) => {
+                const a = e.target.value;
+                const b = regPair?.[1] ?? fragments.find((f) => f.id !== a)?.id ?? "";
+                if (a && b && a !== b) setRegPair([a, b]);
+              }}
+              className="h-8 text-xs rounded-md border border-border bg-panel px-2"
+            >
+              <option value="">Фрагмент A…</option>
+              {fragments.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+            <select
+              value={regPair?.[1] ?? ""}
+              onChange={(e) => {
+                const b = e.target.value;
+                const a = regPair?.[0] ?? fragments.find((f) => f.id !== b)?.id ?? "";
+                if (a && b && a !== b) setRegPair([a, b]);
+              }}
+              className="h-8 text-xs rounded-md border border-border bg-panel px-2"
+            >
+              <option value="">Фрагмент B…</option>
+              {fragments.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {suggested.length > 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              <span className="mr-1">Предложены по маркерам:</span>
+              <span className="flex flex-wrap gap-1 mt-1">
+                {suggested.map((m, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setRegPair([m.a, m.b])}
+                    className="px-1.5 py-0.5 rounded border border-border bg-panel hover:border-primary text-foreground"
+                  >
+                    {m.a} ↔ {m.b}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+
+          {regPair && (
+            <div className="rounded-lg border border-border bg-panel p-2.5 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Пары точек</span>
+                <span className="font-medium tabular-nums">{completePairs.length} / {pairIds.length}</span>
+              </div>
+              {pairIds.length === 0 ? (
+                <div className="text-[11px] text-muted-foreground/80">
+                  Кликайте на {regPair[0]}, затем на {regPair[1]} — так добавляются пары.
+                </div>
+              ) : (
+                <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                  {pairIds.map((pid) => {
+                    const cps = controlPoints.filter(
+                      (cp) => cp.pairId === pid && (cp.fragmentId === regPair[0] || cp.fragmentId === regPair[1]),
+                    );
+                    return (
+                      <li key={pid} className="flex items-center gap-1.5 text-[11px]">
+                        <span
+                          className="h-4 w-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: cpColor(pid) }}
+                        >
+                          {pid}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {cps.length === 2 ? "полная" : `ожидает ${cps[0]?.fragmentId === regPair[0] ? regPair[1] : regPair[0]}`}
+                        </span>
+                        <button
+                          onClick={() => cps.forEach((c) => onRemoveControlPoint(c.id))}
+                          className="ml-auto text-muted-foreground hover:text-red-500"
+                          aria-label="Удалить пару"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === "auto" && (
+        <div className="rounded-lg border border-border bg-panel p-2.5 text-[11px] text-muted-foreground space-y-1">
+          <div>Использует нанесённые маркеры туши и совпадения цветов на краях.</div>
+          <div className="flex items-center justify-between text-foreground">
+            <span>Найдено пар</span>
+            <span className="font-medium tabular-nums">{matches.length}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      {mode !== "manual" && (
+        <Button
+          className="w-full h-9 gap-2"
+          onClick={onRun}
+        >
+          <Crosshair className="h-4 w-4" /> Выполнить регистрацию
+        </Button>
+      )}
+
+      {hasPending && (
+        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+          {quality && (
+            <div className={`text-[11px] font-medium px-2 py-1 rounded border inline-block ${qualityLabel[quality].cls}`}>
+              Качество: {qualityLabel[quality].label}
+              {residual !== null && <span className="ml-1 opacity-70">(RMS {residual.toFixed(2)}%)</span>}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-1.5">
+            <Button size="sm" className="h-8 gap-1 text-xs" onClick={onApply}>
+              Принять
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={onReject}>
+              Отклонить
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Предпросмотр показан пунктиром. Регистрация только рассчитывает положение и не изменяет исходные изображения.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs"
+          onClick={onApply}
+          disabled={!hasPending}
+        >
+          Применить трансформации
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs"
+          onClick={onReset}
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Сбросить регистрацию
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+
 
