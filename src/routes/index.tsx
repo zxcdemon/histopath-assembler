@@ -264,6 +264,7 @@ function Workspace() {
 
         <main className="flex-1 flex flex-col min-w-0 relative">
           <Canvas
+            fragments={fragments}
             selectedId={selected.id}
             onSelect={setSelectedId}
             zoom={zoom}
@@ -279,6 +280,7 @@ function Workspace() {
 
           {bottomOpen ? (
             <BottomBar
+              fragments={fragments}
               selectedId={selected.id}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
@@ -288,9 +290,10 @@ function Workspace() {
               onClick={() => setBottomOpen(true)}
               className="mx-3 mb-3 self-start rounded-lg bg-panel border border-border shadow-panel px-3 py-1.5 text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
             >
-              <ChevronUp className="h-3.5 w-3.5" /> Фрагменты ({FRAGMENTS.length})
+              <ChevronUp className="h-3.5 w-3.5" /> Фрагменты ({fragments.length})
             </button>
           )}
+
         </main>
 
         {/* Desktop right panel */}
