@@ -122,7 +122,10 @@ function Workspace() {
             onSelect={setSelectedId}
             zoom={zoom}
             setZoom={setZoom}
+            placements={placements}
+            updatePlacement={updatePlacement}
           />
+
           {bottomOpen ? (
             <BottomBar
               selectedId={selected.id}
