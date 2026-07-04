@@ -1152,6 +1152,18 @@ function Canvas({
           Режим маркеров: {brushTool === "brush" ? "кисть" : "ластик"} · {brushSize}px
         </div>
       )}
+      {registrationMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 rounded-full bg-panel border border-border shadow-panel px-3 py-1 text-[11px] font-medium text-muted-foreground flex items-center gap-2 pointer-events-none max-w-[92vw]">
+          <Crosshair className="h-3 w-3 text-primary" />
+          {regMode === "manual"
+            ? "Ручной режим: тяните фрагмент, используйте маркеры трансформации."
+            : regMode === "semi"
+              ? regPair
+                ? `Полуавто: ставьте точки на ${regPair[0]} и ${regPair[1]} поочерёдно.`
+                : "Полуавто: выберите пару фрагментов в правой панели."
+              : "Авто: нажмите «Выполнить регистрацию» для расчёта."}
+        </div>
+      )}
 
       {/* Fragments layer */}
       <div
@@ -1162,15 +1174,32 @@ function Canvas({
 
         {fragments.map((f) => {
           const isSel = f.id === selectedId;
-          const p = placements[f.id];
+          const p = (pendingPlacements ?? placements)[f.id];
           const matchedColors = matchedColorsByFragment.get(f.id);
           const fragStrokes = strokes.filter((s) => s.fragmentId === f.id);
+          const fragCPs = controlPoints.filter((cp) => cp.fragmentId === f.id);
+          const isInPair = regPair?.includes(f.id) ?? false;
+          const cpAddMode = registrationMode && regMode === "semi" && isInPair;
+          const isPreview = !!pendingPlacements && placements[f.id] !== p;
+          const onFragmentPointerDown = paintMode
+            ? startPaint(f.id)
+            : cpAddMode
+              ? (e: ReactPointerEvent) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onSelect(f.id);
+                  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const lx = Math.max(0, Math.min(100, ((e.clientX - box.left) / box.width) * 100));
+                  const ly = Math.max(0, Math.min(100, ((e.clientY - box.top) / box.height) * 100));
+                  addControlPoint(f.id, lx, ly);
+                }
+              : startDrag(f.id);
           return (
             <div
               key={f.id}
               data-fragment={f.id}
-              onPointerDown={paintMode ? startPaint(f.id) : startDrag(f.id)}
-              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : "cursor-move"}`}
+              onPointerDown={onFragmentPointerDown}
+              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : cpAddMode ? "cursor-crosshair" : "cursor-move"}`}
               style={{
                 left: `${p.x}%`,
                 top: `${p.y}%`,
