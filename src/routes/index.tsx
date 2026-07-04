@@ -53,6 +53,14 @@ import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyC
 import { ImportDialog } from "@/components/ImportDialog";
 import { SettingsPanel, loadSettings, type AppSettings, type FragmentFileInfo } from "@/components/SettingsPanel";
 import { HelpPanel } from "@/components/HelpPanel";
+import { backend } from "@/lib/backend-api";
+import {
+  useBackend,
+  strokesToMarkers,
+  placementsToTransforms,
+  transformsToPlacements,
+} from "@/lib/backend-hooks";
+import { ServerCrash, ServerCog, Wand2 } from "lucide-react";
 
 import { MascotAssistant } from "@/components/MascotAssistant";
 
