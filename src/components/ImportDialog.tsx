@@ -203,6 +203,37 @@ export function ImportDialog({
         </DialogHeader>
 
         <div
+          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
+            backendReady
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : backendReady === false
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-border bg-secondary/40 text-muted-foreground"
+          }`}
+        >
+          {backendReady ? (
+            <>
+              <ServerCog className="h-3.5 w-3.5" />
+              <span>Backend подключён — .mrxs будет обработан на сервере.</span>
+            </>
+          ) : backendReady === false ? (
+            <>
+              <ServerCrash className="h-3.5 w-3.5" />
+              <span>
+                Модуль .mrxs недоступен. Запустите backend-сервис (см. README).
+                Обычные PNG/JPG работают локально.
+              </span>
+            </>
+          ) : (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Проверяем доступность backend…</span>
+            </>
+          )}
+        </div>
+
+
+        <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
