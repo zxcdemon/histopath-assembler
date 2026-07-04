@@ -458,6 +458,56 @@ function Workspace() {
   const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
   const [regResidual, setRegResidual] = useState<number | null>(null);
   const registrationMode = section === "registration";
+  const previewMode = section === "preview";
+
+  // ============= Preview state =============
+  const [previewLayers, setPreviewLayers] = useState<PreviewLayers>({
+    fragments: true, borders: true, ink: true, cps: false,
+    seams: true, overlaps: true, warnings: true,
+  });
+  const [previewCompare, setPreviewCompare] = useState<PreviewCompare>("current");
+  const [previewSelected, setPreviewSelected] = useState<
+    { type: "fragment"; id: string } | { type: "seam"; id: string } | null
+  >(null);
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const initialPlacements = useMemo(
+    () => Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])) as Record<string, Placement>,
+    [],
+  );
+  const registeredPlacements = pendingPlacements ?? placements;
+  const previewPlacements =
+    previewCompare === "initial" ? initialPlacements :
+    previewCompare === "registered" ? registeredPlacements :
+    placements;
+  const seams = useMemo(
+    () => computeSeams(fragments, previewPlacements),
+    [fragments, previewPlacements],
+  );
+  const previewStatus = useMemo(() => {
+    const bad = seams.filter((s) => s.kind !== "good");
+    const unregistered = fragments.filter((f) => !previewPlacements[f.id]).length;
+    const notes: string[] = [];
+    if (unregistered) notes.push(`Не размещены: ${unregistered}`);
+    if (bad.length) notes.push(`Проблемные стыки: ${bad.length}`);
+    if (pendingPlacements) notes.push("Есть несохранённая регистрация");
+    let level: "ready" | "check" | "issues" = "ready";
+    if (bad.some((s) => s.kind === "overlap") || unregistered) level = "issues";
+    else if (bad.length || pendingPlacements) level = "check";
+    return { level, notes, badCount: bad.length, unregistered };
+  }, [seams, fragments, previewPlacements, pendingPlacements]);
+  const exportComposite = useCallback(() => {
+    const problems: string[] = [];
+    if (previewStatus.unregistered) problems.push(`незарегистрированных фрагментов: ${previewStatus.unregistered}`);
+    if (pendingPlacements) problems.push("неподтверждённая регистрация");
+    if (previewStatus.badCount) problems.push(`проблемных стыков: ${previewStatus.badCount}`);
+    if (problems.length) {
+      toast("Экспорт с предупреждениями", { description: problems.join(" · ") });
+    } else {
+      toast("Готово к экспорту", { description: "Гистотопограмма собрана без нареканий." });
+    }
+  }, [previewStatus, pendingPlacements]);
+
 
   const addControlPoint = useCallback(
     (fid: string, x: number, y: number) => {
