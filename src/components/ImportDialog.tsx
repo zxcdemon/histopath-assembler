@@ -27,6 +27,7 @@ export type StagedFile = {
 function classify(file: File): StagedFile["kind"] {
   const name = file.name.toLowerCase();
   if (name.endsWith(".mrxs")) return "mrxs";
+  if (name.endsWith(".zip")) return "mrxs"; // .zip carrying an .mrxs + sidecar
   if (file.type.startsWith("image/")) return "image";
   if (/\.(png|jpe?g|webp|tiff?|bmp)$/i.test(name)) return "image";
   return "unsupported";
