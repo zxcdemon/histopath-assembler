@@ -815,10 +815,88 @@ function Canvas({
         style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
       >
 
-        {fragments.map((f) => {
+  const startPaint = (id: string) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(id);
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const target = e.currentTarget as HTMLElement;
+    try { target.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const toLocal = (cx: number, cy: number) => ({
+      x: Math.max(0, Math.min(100, ((cx - box.left) / box.width) * 100)),
+      y: Math.max(0, Math.min(100, ((cy - box.top) / box.height) * 100)),
+    });
+    if (brushTool === "eraser") {
+      snapshotStrokes();
+      const radius = Math.max(1.5, brushSize * 1.4);
+      const p0 = toLocal(e.clientX, e.clientY);
+      eraseNear(id, p0.x, p0.y, radius);
+      const move = (ev: PointerEvent) => {
+        const p = toLocal(ev.clientX, ev.clientY);
+        eraseNear(id, p.x, p.y, radius);
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
+    snapshotStrokes();
+    const strokeId = `st-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const first = toLocal(e.clientX, e.clientY);
+    const points: MarkerPoint[] = [first, { x: first.x + 0.01, y: first.y + 0.01 }];
+    addStroke({
+      id: strokeId,
+      fragmentId: id,
+      color: brushColor,
+      size: brushSize,
+      points: [...points],
+      createdAt: Date.now(),
+    });
+    const move = (ev: PointerEvent) => {
+      const p = toLocal(ev.clientX, ev.clientY);
+      const last = points[points.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) < 0.4) return;
+      points.push(p);
+      updateStrokePoints(strokeId, points);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
+  return (
+    <div className="relative flex-1 min-h-0 bg-canvas overflow-hidden">
+      {/* Guides */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute left-1/2 top-0 bottom-0 w-px border-l border-dashed border-border/80" />
+        <div className="absolute top-1/2 left-0 right-0 h-px border-t border-dashed border-border/80" />
+      </div>
+
+      {paintMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 rounded-full bg-panel border border-border shadow-panel px-3 py-1 text-[11px] font-medium text-muted-foreground flex items-center gap-2 pointer-events-none">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: brushColor }} />
+          Режим маркеров: {brushTool === "brush" ? "кисть" : "ластик"} · {brushSize}px
+        </div>
+      )}
+
+      {/* Fragments layer */}
+      <div
+        ref={layerRef}
+        className="absolute inset-6 md:inset-10 transition-transform"
+        style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
+      >
+
+        {fragments.map((f) => {
           const isSel = f.id === selectedId;
           const p = placements[f.id];
+          const matchedColors = matchedColorsByFragment.get(f.id);
+          const fragStrokes = strokes.filter((s) => s.fragmentId === f.id);
           return (
             <div
               key={f.id}
