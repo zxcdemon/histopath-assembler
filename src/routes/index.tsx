@@ -233,7 +233,12 @@ function Workspace() {
             setZoom={setZoom}
             placements={placements}
             updatePlacement={updatePlacement}
+            commitHistory={commitHistory}
+            inkOn={inkOn}
+            inkLevels={inkLevels}
+            inkVisible={inkVisible}
           />
+
 
           {bottomOpen ? (
             <BottomBar
