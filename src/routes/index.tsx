@@ -1248,6 +1248,7 @@ function Canvas({
   addControlPoint,
   removeControlPoint,
   pendingPlacements,
+  ghostPlacements,
 }: {
   fragments: Fragment[];
   selectedId: string;
