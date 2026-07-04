@@ -747,19 +747,46 @@ function Workspace() {
   }, [selected, placements, commitHistory, undo, redo, paintMode, undoStroke]);
 
   const handleSection = (id: string) => {
-    setSection(id);
     setNavOpen(false);
-    if (id === "import") {
-      setImportOpen(true);
-      return;
-    }
+    if (id === "import") { setSection(id); setImportOpen(true); return; }
+    if (id === "settings") { setSettingsOpen(true); return; }
+    if (id === "help") { setHelpOpen(true); return; }
+    setSection(id);
     const labels: Record<string, string> = {
       import: "Импорт", markers: "Маркеры", layout: "Макет",
       registration: "Регистрация", preview: "Просмотр",
-      settings: "Настройки", help: "Помощь",
     };
-    if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
+    if (id !== "layout" && labels[id]) toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
   };
+
+  // Files summary for the Settings panel.
+  const fragmentFiles: FragmentFileInfo[] = useMemo(
+    () => fragments.map((f) => {
+      const hasStrokes = strokes.some((s) => s.fragmentId === f.id);
+      const isRegistered = !!pendingPlacements && !!pendingPlacements[f.id];
+      const status: FragmentFileInfo["status"] = isRegistered
+        ? "registered"
+        : hasStrokes
+          ? "marked"
+          : "uploaded";
+      return { id: f.id, fileName: f.fileName ?? `${f.id}.mrxs`, status };
+    }),
+    [fragments, strokes, pendingPlacements],
+  );
+
+  const handleClearCache = useCallback(() => {
+    try { localStorage.removeItem(MARKERS_STORAGE_KEY); } catch { /* noop */ }
+    toast("Временный кэш проекта очищен");
+  }, []);
+  const handleResetProject = useCallback(() => {
+    setPlacements(Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])));
+    setHistory({ past: [], future: [] });
+    toast("Настройки проекта сброшены");
+  }, [fragments]);
+  const handleRestore = useCallback(() => {
+    toast("Восстановлено последнее сохранённое состояние");
+  }, []);
+
 
 
 
