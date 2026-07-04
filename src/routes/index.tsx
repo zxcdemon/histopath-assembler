@@ -554,7 +554,7 @@ function Workspace() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `histotopogram-${be.backendCaseId}.${fmt === "png" ? "png" : "ome.tif"}`;
+          a.download = `histotopogram-${be.backendCaseId}.ome.tif`;
           document.body.appendChild(a);
           a.click();
           a.remove();
