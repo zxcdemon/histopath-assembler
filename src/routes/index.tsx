@@ -535,10 +535,43 @@ function Workspace() {
     if (previewStatus.badCount) problems.push(`проблемных стыков: ${previewStatus.badCount}`);
     if (problems.length) {
       toast("Экспорт с предупреждениями", { description: problems.join(" · ") });
-    } else {
-      toast("Готово к экспорту", { description: "Гистотопограмма собрана без нареканий." });
     }
-  }, [previewStatus, pendingPlacements]);
+
+    // Real export via backend when available (PNG / OME-TIFF / BigTIFF).
+    if (be.backendCaseId) {
+      be.setExporting(true);
+      const fmt = (settings.export?.format ?? "ome-tiff") as "png" | "ome-tiff" | "bigtiff";
+      backend
+        .exportBlob(be.backendCaseId, {
+          transforms: placementsToTransforms(placements, fragments),
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          metrics: backendMetrics ?? undefined,
+          format: fmt,
+        })
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `histotopogram-${be.backendCaseId}.${fmt === "png" ? "png" : "ome.tif"}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast.success("Экспорт готов", { description: `Формат: ${fmt.toUpperCase()}` });
+        })
+        .catch((e) => toast.error("Экспорт не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setExporting(false));
+      return;
+    }
+
+    if (!problems.length) {
+      toast("Готово к экспорту", {
+        description: "Backend не подключён — доступен только просмотр сборки в браузере.",
+      });
+    }
+  }, [previewStatus, pendingPlacements, be, settings, placements, fragments, strokes, backendMetrics]);
+
 
   // ============= Assembly metrics (real-time) =============
   const [assemblyDetailsOpen, setAssemblyDetailsOpen] = useState(false);
