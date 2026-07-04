@@ -772,36 +772,58 @@ function Workspace() {
         </Sheet>
 
         <main className="flex-1 flex flex-col min-w-0 relative">
-          <Canvas
-            fragments={fragments}
-            selectedId={selected.id}
-            onSelect={setSelectedId}
-            zoom={zoom}
-            setZoom={setZoom}
-            placements={placements}
-            updatePlacement={updatePlacement}
-            commitHistory={commitHistory}
-            inkOn={inkOn}
-            inkLevels={inkLevels}
-            inkVisible={inkVisible}
-            paintMode={paintMode}
-            strokes={strokes}
-            brushColor={brushColor}
-            brushSize={brushSize}
-            brushTool={brushTool}
-            addStroke={addStroke}
-            updateStrokePoints={updateStrokePoints}
-            eraseNear={eraseNear}
-            snapshotStrokes={snapshotStrokes}
-            matchedColorsByFragment={matchedColorsByFragment}
-            registrationMode={registrationMode}
-            regMode={mode}
-            regPair={regPair}
-            controlPoints={controlPoints}
-            addControlPoint={addControlPoint}
-            removeControlPoint={removeControlPoint}
-            pendingPlacements={pendingPlacements}
-          />
+          {previewMode ? (
+            <PreviewView
+              fragments={fragments}
+              placements={previewPlacements}
+              inkLevels={inkLevels}
+              inkVisible={inkVisible}
+              strokes={strokes}
+              controlPoints={controlPoints}
+              seams={seams}
+              layers={previewLayers}
+              compare={previewCompare}
+              zoom={previewZoom}
+              setZoom={setPreviewZoom}
+              pan={previewPan}
+              setPan={setPreviewPan}
+              selected={previewSelected}
+              onSelect={setPreviewSelected}
+              status={previewStatus}
+              onExport={exportComposite}
+            />
+          ) : (
+            <Canvas
+              fragments={fragments}
+              selectedId={selected.id}
+              onSelect={setSelectedId}
+              zoom={zoom}
+              setZoom={setZoom}
+              placements={placements}
+              updatePlacement={updatePlacement}
+              commitHistory={commitHistory}
+              inkOn={inkOn}
+              inkLevels={inkLevels}
+              inkVisible={inkVisible}
+              paintMode={paintMode}
+              strokes={strokes}
+              brushColor={brushColor}
+              brushSize={brushSize}
+              brushTool={brushTool}
+              addStroke={addStroke}
+              updateStrokePoints={updateStrokePoints}
+              eraseNear={eraseNear}
+              snapshotStrokes={snapshotStrokes}
+              matchedColorsByFragment={matchedColorsByFragment}
+              registrationMode={registrationMode}
+              regMode={mode}
+              regPair={regPair}
+              controlPoints={controlPoints}
+              addControlPoint={addControlPoint}
+              removeControlPoint={removeControlPoint}
+              pendingPlacements={pendingPlacements}
+            />
+          )}
 
 
           {bottomOpen ? (
@@ -821,6 +843,7 @@ function Workspace() {
           )}
 
         </main>
+
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
