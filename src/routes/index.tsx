@@ -271,7 +271,7 @@ function Workspace() {
             setMode={setMode}
             inkOn={inkOn}
             setInkOn={setInkOn}
-
+          />
         </aside>
         {/* Mobile params drawer */}
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
@@ -284,6 +284,8 @@ function Workspace() {
               resetPlacement={resetPlacement}
               inkLevels={inkLevels}
               setInkLevel={setInkLevel}
+              inkVisible={inkVisible}
+              toggleInkVisible={toggleInkVisible}
               mode={mode}
               setMode={setMode}
               inkOn={inkOn}
@@ -291,6 +293,7 @@ function Workspace() {
             />
           </SheetContent>
         </Sheet>
+
       </div>
 
 
