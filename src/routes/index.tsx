@@ -169,6 +169,11 @@ function Workspace() {
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
           <FragmentParams
             fragment={selected}
+            placement={placements[selected.id]}
+            updatePlacement={updatePlacement}
+            resetPlacement={resetPlacement}
+            inkLevels={inkLevels}
+            setInkLevel={setInkLevel}
             mode={mode}
             setMode={setMode}
             inkOn={inkOn}
@@ -181,6 +186,11 @@ function Workspace() {
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
             <FragmentParams
               fragment={selected}
+              placement={placements[selected.id]}
+              updatePlacement={updatePlacement}
+              resetPlacement={resetPlacement}
+              inkLevels={inkLevels}
+              setInkLevel={setInkLevel}
               mode={mode}
               setMode={setMode}
               inkOn={inkOn}
@@ -189,6 +199,7 @@ function Workspace() {
           </SheetContent>
         </Sheet>
       </div>
+
 
       {/* Mobile params trigger */}
       <button
