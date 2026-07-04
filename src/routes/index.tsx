@@ -2129,11 +2129,11 @@ function RegistrationPanel({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="flex flex-col gap-1.5">
         <Button
           variant="outline"
           size="sm"
-          className="h-8 gap-1 text-xs"
+          className="h-8 w-full gap-1 text-xs justify-center"
           onClick={onApply}
           disabled={!hasPending}
         >
@@ -2142,12 +2142,13 @@ function RegistrationPanel({
         <Button
           variant="outline"
           size="sm"
-          className="h-8 gap-1 text-xs"
+          className="h-8 w-full gap-1 text-xs justify-center"
           onClick={onReset}
         >
           <RotateCcw className="h-3.5 w-3.5" /> Сбросить регистрацию
         </Button>
       </div>
+
     </div>
   );
 }
