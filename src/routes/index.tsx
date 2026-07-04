@@ -24,7 +24,8 @@ import {
   FlipHorizontal,
 
   ChevronUp,
-  X,
+
+
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
