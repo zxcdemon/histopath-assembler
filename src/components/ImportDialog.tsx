@@ -27,6 +27,7 @@ export type StagedFile = {
 function classify(file: File): StagedFile["kind"] {
   const name = file.name.toLowerCase();
   if (name.endsWith(".mrxs")) return "mrxs";
+  if (name.endsWith(".zip")) return "mrxs"; // .zip carrying an .mrxs + sidecar
   if (file.type.startsWith("image/")) return "image";
   if (/\.(png|jpe?g|webp|tiff?|bmp)$/i.test(name)) return "image";
   return "unsupported";
@@ -145,10 +146,12 @@ export function ImportDialog({
       }
 
       const out: Fragment[] = [];
+      let skippedMrxs = 0;
       let i = 1;
       for (const s of valid) {
         const id = nextId(i++);
         const isImg = s.kind === "image";
+        const isZip = s.file.name.toLowerCase().endsWith(".zip");
         const idx = i - 2;
         let remote:
           | { remoteId: string; remoteCaseId: string; thumbnailUrl?: string; pixelWidth?: number; pixelHeight?: number; mppX?: number | null; mppY?: number | null }
@@ -156,7 +159,9 @@ export function ImportDialog({
 
         if (caseId) {
           try {
-            const f = await backend.uploadFragment(caseId, s.file);
+            const f = isZip
+              ? await backend.uploadFragmentArchive(caseId, s.file)
+              : await backend.uploadFragment(caseId, s.file);
             remote = {
               remoteId: f.id,
               remoteCaseId: caseId,
@@ -168,7 +173,18 @@ export function ImportDialog({
             };
           } catch (e) {
             console.warn("uploadFragment failed", s.name, e);
+            toast.error(`Не удалось загрузить ${s.name}`, {
+              description: e instanceof Error ? e.message : String(e),
+            });
+            if (s.kind === "mrxs") {
+              skippedMrxs += 1;
+              continue;
+            }
           }
+        } else if (s.kind === "mrxs") {
+          // No backend and this is an .mrxs — cannot render on client, skip with clear message.
+          skippedMrxs += 1;
+          continue;
         }
 
         const src = isImg && !remote ? await readAsDataUrl(s.file) : undefined;
@@ -184,6 +200,12 @@ export function ImportDialog({
           ...remote,
         });
       }
+      if (skippedMrxs) {
+        toast.error(`Для .mrxs нужно запустить backend с OpenSlide`, {
+          description: `Пропущено файлов: ${skippedMrxs}`,
+        });
+      }
+      if (!out.length) return;
       onImport(out);
       clearAll();
       onOpenChange(false);
@@ -198,7 +220,7 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle>Импорт сканов</DialogTitle>
           <DialogDescription>
-            Загрузите от {MIN_FILES} до {MAX_FILES} файлов. Поддерживаются PNG, JPG, WEBP, TIFF и .mrxs.
+            Загрузите от {MIN_FILES} до {MAX_FILES} файлов. Поддерживаются PNG, JPG, WEBP, TIFF, .mrxs и .zip (архив с .mrxs + сателлитом).
           </DialogDescription>
         </DialogHeader>
 
@@ -245,13 +267,13 @@ export function ImportDialog({
           <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm font-medium">Перетащите файлы сюда или нажмите</p>
           <p className="text-xs text-muted-foreground mt-1">
-            .mrxs, .png, .jpg, .webp, .tiff · до {MAX_FILES} шт.
+            .mrxs, .zip, .png, .jpg, .webp, .tiff · до {MAX_FILES} шт.
           </p>
           <input
             ref={inputRef}
             type="file"
             multiple
-            accept=".mrxs,image/*,.tif,.tiff"
+            accept=".mrxs,.zip,image/*,.tif,.tiff"
             onChange={onPick}
             className="hidden"
           />

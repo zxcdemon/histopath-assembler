@@ -113,6 +113,23 @@ export const backend = {
     return res.json();
   },
 
+  uploadFragmentArchive: async (caseId: string, file: File): Promise<BackendFragment> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(url(`/cases/${caseId}/fragments/archive`), { method: "POST", body: fd });
+    if (!res.ok) {
+      let msg = `Upload failed: ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.detail) msg = String(j.detail);
+      } catch {
+        msg += ` ${await res.text()}`;
+      }
+      throw new Error(msg);
+    }
+    return res.json();
+  },
+
   listFragments: (caseId: string) =>
     jsonFetch<BackendFragment[]>(`/cases/${caseId}/fragments`),
 

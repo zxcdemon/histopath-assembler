@@ -19,20 +19,33 @@
 
 ---
 
-## Быстрый старт
-
-### 1. Backend (Docker, рекомендуется)
+## Быстрый старт (полный запуск)
 
 ```bash
+# 1. Backend (Docker)
 docker compose up --build
-# API поднимется на http://localhost:8000
-# Healthcheck:
+# 2. Проверка
 curl http://localhost:8000/health
+# → {"ok": true, "openslide": true, "version": "0.1.0"}
+
+# 3. Frontend
+cp .env.example .env         # VITE_BACKEND_URL=http://localhost:8000
+bun install
+bun run dev
 ```
 
-### 2. Backend (локально, без Docker)
+Откройте фронт (по умолчанию http://localhost:5173 / TanStack dev port).
+Сверху появится зелёная плашка «Backend подключён» — значит `.mrxs`
+пойдёт через OpenSlide, а `Экспорт` пишет реальный OME-TIFF.
 
-Требует системный `openslide` (`apt install libopenslide0` / `brew install openslide`).
+Если плашка жёлтая («Модуль .mrxs недоступен») — backend не запущен
+или недоступен по `VITE_BACKEND_URL`, и приложение работает только как
+browser-only demo (PNG/JPG-фрагменты, без .mrxs, без OME-TIFF).
+
+### Backend локально (без Docker)
+
+Требует системный `openslide` (`apt install libopenslide0` /
+`brew install openslide`).
 
 ```bash
 cd backend
@@ -41,17 +54,18 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-### 3. Frontend
+### Важные оговорки
 
-```bash
-cp .env.example .env         # выставьте VITE_BACKEND_URL если нужно
-bun install
-bun run dev
-```
-
-Если `VITE_BACKEND_URL` не выставлен или backend недоступен — фронт
-отобразит понятное сообщение и продолжит работать в browser-only режиме
-(обычные PNG/JPG фрагменты, без `.mrxs`).
+- `.mrxs` **работает только через backend** с установленным OpenSlide.
+- **Lovable Cloud backend не запускает** — Cloudflare Workers не даёт
+  нативных бинарников и OpenSlide.
+- Для реальных `.mrxs` лучше грузить **ZIP-архив** с `.mrxs`-файлом и
+  сателлитной папкой `.dat` — эндпоинт `/cases/{id}/fragments/archive`
+  распаковывает архив и подаёт `.mrxs` в OpenSlide вместе со всеми
+  зависимыми файлами.
+- Если backend не запущен, frontend работает как browser-only demo:
+  обычные PNG/JPG кладутся на холст, `.mrxs` пропускается с честным
+  сообщением «Для .mrxs нужно запустить backend с OpenSlide».
 
 ---
 
@@ -73,6 +87,7 @@ bun run dev
 | `/health` | GET | Проверка доступности + флаг `openslide`. |
 | `/cases` | POST | Создать case. |
 | `/cases/{id}/fragments` | POST | Загрузить `.mrxs` или изображение. |
+| `/cases/{id}/fragments/archive` | POST | Загрузить ZIP-архив с `.mrxs` + сателлитом. |
 | `/cases/{id}/fragments` | GET | Список фрагментов с metadata (уровни, mpp). |
 | `/fragments/{case}/{frag}/thumbnail` | GET | JPEG-превью. |
 | `/fragments/{case}/{frag}/tile/{level}/{x}/{y}` | GET | Тайл 256×256 JPEG. |

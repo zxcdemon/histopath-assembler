@@ -53,6 +53,14 @@ import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyC
 import { ImportDialog } from "@/components/ImportDialog";
 import { SettingsPanel, loadSettings, type AppSettings, type FragmentFileInfo } from "@/components/SettingsPanel";
 import { HelpPanel } from "@/components/HelpPanel";
+import { backend } from "@/lib/backend-api";
+import {
+  useBackend,
+  strokesToMarkers,
+  placementsToTransforms,
+  transformsToPlacements,
+} from "@/lib/backend-hooks";
+import { ServerCrash, ServerCog, Wand2 } from "lucide-react";
 
 import { MascotAssistant } from "@/components/MascotAssistant";
 
@@ -284,6 +292,13 @@ function Workspace() {
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])),
   );
+
+  // Backend integration (Python/FastAPI service under backend/).
+  const be = useBackend(fragments);
+  const [backendMetrics, setBackendMetrics] = useState<
+    import("@/lib/backend-hooks").AssemblyMetrics | null
+  >(null);
+
   const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
     const init: InkLevels = {};
     fragments.forEach((f) =>
@@ -520,10 +535,44 @@ function Workspace() {
     if (previewStatus.badCount) problems.push(`проблемных стыков: ${previewStatus.badCount}`);
     if (problems.length) {
       toast("Экспорт с предупреждениями", { description: problems.join(" · ") });
-    } else {
-      toast("Готово к экспорту", { description: "Гистотопограмма собрана без нареканий." });
     }
-  }, [previewStatus, pendingPlacements]);
+
+    // Real export via backend when available (PNG / OME-TIFF / BigTIFF).
+    if (be.backendCaseId) {
+      be.setExporting(true);
+      const rawFmt = settings.export?.format ?? "ome-tiff";
+      const fmt: "png" | "ome-tiff" | "bigtiff" = rawFmt === "big-tiff" ? "bigtiff" : "ome-tiff";
+      backend
+        .exportBlob(be.backendCaseId, {
+          transforms: placementsToTransforms(placements, fragments),
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          metrics: backendMetrics ?? undefined,
+          format: fmt,
+        })
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `histotopogram-${be.backendCaseId}.ome.tif`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast.success("Экспорт готов", { description: `Формат: ${fmt.toUpperCase()}` });
+        })
+        .catch((e) => toast.error("Экспорт не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setExporting(false));
+      return;
+    }
+
+    if (!problems.length) {
+      toast("Готово к экспорту", {
+        description: "Backend не подключён — доступен только просмотр сборки в браузере.",
+      });
+    }
+  }, [previewStatus, pendingPlacements, be, settings, placements, fragments, strokes, backendMetrics]);
+
 
   // ============= Assembly metrics (real-time) =============
   const [assemblyDetailsOpen, setAssemblyDetailsOpen] = useState(false);
@@ -842,11 +891,21 @@ function Workspace() {
     if (!pendingPlacements) return;
     commitHistory();
     setPlacements(pendingPlacements);
+    // Persist transforms to backend so the case reflects the applied layout.
+    if (be.backendCaseId) {
+      const t = placementsToTransforms(pendingPlacements, fragments);
+      if (Object.keys(t).length) {
+        backend
+          .setTransforms(be.backendCaseId, t)
+          .catch((e) => console.warn("setTransforms failed", e));
+      }
+    }
     setPendingPlacements(null);
     setRegQuality(null);
     setRegResidual(null);
     toast("Трансформации применены");
-  }, [pendingPlacements, commitHistory]);
+  }, [pendingPlacements, commitHistory, be.backendCaseId, fragments]);
+
 
   const rejectPending = useCallback(() => {
     setPendingPlacements(null);
@@ -868,8 +927,26 @@ function Workspace() {
       return { ok: false, error: msg };
     }
     setGhostPlacements(res.placements);
+    // Refine via backend if it's available for this case.
+    if (be.backendCaseId) {
+      be.setRegistering(true);
+      backend
+        .register(be.backendCaseId, {
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          currentTransforms: placementsToTransforms(placements, fragments),
+        })
+        .then((r) => {
+          const refined = transformsToPlacements(r.proposedTransforms, placements, fragments);
+          setGhostPlacements(refined);
+          setBackendMetrics(r.metrics);
+          toast.success("Подсказка обновлена по данным backend");
+        })
+        .catch((e) => toast.error("Backend register не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setRegistering(false));
+    }
     return { ok: true };
-  }, [computeAutoProposal]);
+  }, [computeAutoProposal, be, strokes, placements, fragments]);
 
   const assistantApplySuggestion = useCallback(() => {
     if (!ghostPlacements) return;
@@ -899,8 +976,28 @@ function Workspace() {
     setPendingPlacements(res.placements);
     setRegQuality(res.quality ?? "check");
     setRegResidual(null);
+    // Refine with backend if available; overrides pending with server proposal.
+    if (be.backendCaseId) {
+      be.setRegistering(true);
+      backend
+        .register(be.backendCaseId, {
+          markers: strokesToMarkers(strokes),
+          controlPoints: [],
+          currentTransforms: placementsToTransforms(placements, fragments),
+        })
+        .then((r) => {
+          const refined = transformsToPlacements(r.proposedTransforms, placements, fragments);
+          setPendingPlacements(refined);
+          setBackendMetrics(r.metrics);
+          toast.success("Сборка предложена backend", {
+            description: `Пары: ${r.metrics.matchCount} · score ${r.metrics.score}`,
+          });
+        })
+        .catch((e) => toast.error("Backend register не удался", { description: String(e.message ?? e) }))
+        .finally(() => be.setRegistering(false));
+    }
     return { ok: true };
-  }, [computeAutoProposal]);
+  }, [computeAutoProposal, be, strokes, placements, fragments]);
 
 
   const importFragments = (newFragments: Fragment[]) => {
@@ -1040,6 +1137,78 @@ function Workspace() {
         </Sheet>
 
         <main className="flex-1 flex flex-col min-w-0 relative">
+          {/* Backend status banner */}
+          {be.backendConfigured && (
+            <div
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${
+                be.backendAvailable === true
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : be.backendAvailable === false
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-border bg-secondary/40 text-muted-foreground"
+              }`}
+            >
+              {be.backendAvailable === true ? (
+                <>
+                  <ServerCog className="h-3.5 w-3.5" />
+                  <span>
+                    Backend подключён{be.backendCaseId ? ` · case ${be.backendCaseId}` : ""}
+                    {be.isRegistering ? " · регистрация…" : ""}
+                    {be.isExporting ? " · экспорт…" : ""}
+                  </span>
+                </>
+              ) : be.backendAvailable === false ? (
+                <>
+                  <ServerCrash className="h-3.5 w-3.5" />
+                  <span>Модуль .mrxs недоступен. Запустите backend-сервис (см. README).</span>
+                </>
+              ) : (
+                <span>Проверяем доступность backend…</span>
+              )}
+            </div>
+          )}
+          {section === "markers" && (
+            <div className="px-3 py-1.5 border-b border-border bg-panel flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const caseId = be.requireCaseId();
+                  if (!caseId) return;
+                  try {
+                    const r = await backend.detectInk(caseId);
+                    toast.success(`Найдено маркеров: ${r.markers.length}`, {
+                      description: "Результаты добавлены к сборочным метрикам.",
+                    });
+                    // Trigger a metrics refresh via register call.
+                    const reg = await backend.register(caseId, {
+                      markers: r.markers,
+                      controlPoints: [],
+                      currentTransforms: placementsToTransforms(placements, fragments),
+                    });
+                    setBackendMetrics(reg.metrics);
+                  } catch (e) {
+                    toast.error("Автоопределение маркеров не удалось", {
+                      description: e instanceof Error ? e.message : String(e),
+                    });
+                  }
+                }}
+                disabled={!be.backendAvailable}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title={
+                  be.backendAvailable
+                    ? "Запустить детектор ink-маркеров на backend"
+                    : "Автоопределение маркеров доступно только при запущенном backend"
+                }
+              >
+                <Wand2 className="h-3.5 w-3.5" /> Автоопределить маркеры
+              </button>
+              {backendMetrics && (
+                <span className="text-xs text-muted-foreground">
+                  score {backendMetrics.score} · пар {backendMetrics.matchCount}
+                </span>
+              )}
+            </div>
+          )}
+
           {previewMode ? (
             <PreviewView
               fragments={fragments}

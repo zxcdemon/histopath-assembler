@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any
+
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -171,6 +174,74 @@ async def upload_fragment(case_id: str, file: UploadFile = File(...)):
     }
     storage.add_fragment(case_id, frag)
     return frag
+
+
+@app.post("/cases/{case_id}/fragments/archive")
+async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
+    """Accept a .zip containing a .mrxs file (plus its sidecar .dat directory).
+
+    OpenSlide needs the .mrxs file and the sibling folder of raw .dat files
+    to sit side by side. Users can zip both and upload as one archive.
+    """
+    if not storage.get_case(case_id):
+        raise HTTPException(404, "Case not found")
+    fragment_id = uuid.uuid4().hex[:12]
+    dest = storage.fragment_dir(case_id, fragment_id)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Save the archive itself to a temp location, then extract into `dest`.
+    tmp_zip = dest / (file.filename or "upload.zip")
+    with tmp_zip.open("wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+
+    if not zipfile.is_zipfile(tmp_zip):
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(400, "Загруженный файл не является ZIP-архивом.")
+
+    try:
+        with zipfile.ZipFile(tmp_zip) as zf:
+            # Guard against path traversal.
+            for name in zf.namelist():
+                p = Path(name)
+                if p.is_absolute() or ".." in p.parts:
+                    raise HTTPException(400, f"Небезопасный путь в архиве: {name}")
+            zf.extractall(dest)
+    finally:
+        tmp_zip.unlink(missing_ok=True)
+
+    # Find the .mrxs entry inside the extracted tree.
+    mrxs_files = list(dest.rglob("*.mrxs"))
+    if not mrxs_files:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(
+            400,
+            "В ZIP-архиве не найден файл .mrxs. Загрузите архив, содержащий .mrxs и папку-сателлит.",
+        )
+    file_path = mrxs_files[0]
+
+    try:
+        meta = wsi.probe(file_path)
+    except WSIUnavailable as e:
+        raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}")
+
+    try:
+        thumb_path = dest / "thumb.jpg"
+        wsi.write_thumbnail(file_path, thumb_path, max_side=512)
+        meta["thumbnail"] = f"/fragments/{case_id}/{fragment_id}/thumbnail"
+    except Exception as e:  # noqa: BLE001
+        meta["thumbnailError"] = str(e)
+
+    frag = {
+        "id": fragment_id,
+        "caseId": case_id,
+        "fileName": file.filename,
+        "path": str(file_path),
+        **meta,
+    }
+    storage.add_fragment(case_id, frag)
+    return frag
+
 
 
 @app.get("/cases/{case_id}/fragments")
