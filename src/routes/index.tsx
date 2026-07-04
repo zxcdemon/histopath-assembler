@@ -493,8 +493,9 @@ function Canvas({
           <Plus className="h-4 w-4" />
         </IconBtn>
         <div className="w-px h-5 bg-border mx-1" />
-        <IconBtn aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
+        <IconBtn onClick={() => setZoom(100)} aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
         <IconBtn aria-label="Панорама"><Move className="h-4 w-4" /></IconBtn>
+
       </div>
     </div>
   );
