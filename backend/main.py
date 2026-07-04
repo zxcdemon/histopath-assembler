@@ -342,17 +342,17 @@ def register(case_id: str, payload: RegisterIn):
     if len(frags) < 2:
         raise HTTPException(400, "Need at least 2 fragments")
 
+    markers = [m.model_dump() for m in payload.markers]
+    control_points = [cp.model_dump() for cp in payload.controlPoints]
+    current = {k: v.model_dump() for k, v in payload.currentTransforms.items()}
+
     proposed = propose_transforms(
         fragments=frags,
-        markers=[m.model_dump() for m in payload.markers],
-        control_points=[cp.model_dump() for cp in payload.controlPoints],
-        current=(
-            {k: v.model_dump() for k, v in payload.currentTransforms.items()}
-            if payload.currentTransforms
-            else None
-        ),
+        markers=markers,
+        control_points=control_points,
+        current=current or None,
     )
-    metrics = compute_metrics(frags, proposed, payload.markers, payload.controlPoints)
+    metrics = compute_metrics(frags, proposed, markers, control_points)
     return {"proposedTransforms": proposed, "metrics": metrics}
 
 
@@ -375,13 +375,16 @@ def export_case(case_id: str, payload: ExportIn):
     frags = storage.list_fragments(case_id)
     if not frags:
         raise HTTPException(400, "No fragments")
+    fmt = _normalised_export_format(payload.format)
+    transforms = {k: v.model_dump() for k, v in payload.transforms.items()}
     try:
         buf = export_composition(
             fragments=frags,
-            transforms={k: v.model_dump() for k, v in payload.transforms.items()},
-            fmt=payload.format,
+            transforms=transforms,
+            fmt=fmt,
             metadata={
                 "caseId": case_id,
+                "transforms": transforms,
                 "markers": [m.model_dump() for m in payload.markers],
                 "controlPoints": [c.model_dump() for c in payload.controlPoints],
                 "metrics": payload.metrics,
@@ -396,8 +399,8 @@ def export_case(case_id: str, payload: ExportIn):
         "png": "image/png",
         "ome-tiff": "image/tiff",
         "bigtiff": "image/tiff",
-    }.get(payload.format, "application/octet-stream")
-    filename = f"histotopogram_{case_id}.{ 'png' if payload.format == 'png' else 'ome.tif' }"
+    }.get(fmt, "application/octet-stream")
+    filename = _export_filename(case_id, fmt)
     return StreamingResponse(
         io.BytesIO(buf),
         media_type=media,
