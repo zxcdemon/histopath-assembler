@@ -467,6 +467,7 @@ function SelectionHandles({
 }: {
   onResize: (e: ReactPointerEvent) => void;
   onRotate: (e: ReactPointerEvent) => void;
+  onFlip: (e: ReactPointerEvent) => void;
 }) {
   const handle = "absolute w-2.5 h-2.5 bg-panel border border-primary rounded-[2px]";
   return (
@@ -493,9 +494,18 @@ function SelectionHandles({
       >
         <RotateCcw className="h-2.5 w-2.5 text-primary" />
       </span>
+      <button
+        type="button"
+        onPointerDown={onFlip}
+        title="Отразить по горизонтали"
+        className="absolute -top-7 left-[calc(50%+18px)] -translate-x-1/2 h-4 w-4 rounded-full border border-primary bg-panel flex items-center justify-center hover:bg-accent"
+      >
+        <FlipHorizontal className="h-2.5 w-2.5 text-primary" />
+      </button>
     </>
   );
 }
+
 
 
 function BottomBar({
