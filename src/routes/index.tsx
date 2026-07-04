@@ -1,5 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+
 
 import {
   Menu,
