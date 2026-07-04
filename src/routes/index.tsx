@@ -268,6 +268,18 @@ function Workspace() {
   const [bottomOpen, setBottomOpen] = useState(true);
   const [section, setSection] = useState<string>("layout");
   const [importOpen, setImportOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  useEffect(() => {
+    try { localStorage.setItem("htg-settings:v1", JSON.stringify(settings)); } catch { /* noop */ }
+  }, [settings]);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.display.theme === "dark") root.classList.add("dark");
+    else root.classList.remove("dark");
+  }, [settings.display.theme]);
+
   const [fragments, setFragments] = useState<Fragment[]>(() => FRAGMENTS.map((f) => ({ ...f })));
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])),
