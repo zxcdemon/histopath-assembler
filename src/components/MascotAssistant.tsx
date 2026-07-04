@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import mascotHero from "@/assets/mascot-hero.png";
 
-export function MascotAssistant() {
+export function MascotAssistant({ onOpenHelp }: { onOpenHelp?: () => void } = {}) {
   const [open, setOpen] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -15,6 +15,15 @@ export function MascotAssistant() {
     });
     setTimeout(() => setStatus(null), 3500);
   };
+
+  const handleHelp = () => {
+    if (onOpenHelp) onOpenHelp();
+    else
+      toast("Раздел «Помощь»", {
+        description: "Откройте «Помощь» в левом меню для встроенной справки.",
+      });
+  };
+
 
   const handleSuggest = () => {
     setStatus(null);
