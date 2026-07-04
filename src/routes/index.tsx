@@ -525,6 +525,163 @@ function Workspace() {
     }
   }, [previewStatus, pendingPlacements]);
 
+  // ============= Assembly metrics (real-time) =============
+  const [assemblyDetailsOpen, setAssemblyDetailsOpen] = useState(false);
+  const [warningsHidden, setWarningsHidden] = useState(false);
+  const [highlightProblems, setHighlightProblems] = useState(false);
+
+  const assemblyMetrics = useMemo(() => {
+    const activePlacements = pendingPlacements ?? placements;
+    const currentSeams = computeSeams(fragments, activePlacements);
+    const totalFragments = fragments.length;
+    const usedFragments = fragments.filter((f) => !!activePlacements[f.id]).length;
+
+    // Errors (blocking) vs warnings (advisory)
+    type Issue = { id: string; kind: "error" | "warning"; title: string; detail?: string };
+    const errors: Issue[] = [];
+    const warnings: Issue[] = [];
+
+    // Fragment-level checks: rotation, scale outliers
+    const widths = fragments.map((f) => activePlacements[f.id]?.w ?? 0).filter((w) => w > 0);
+    const meanW = widths.reduce((s, w) => s + w, 0) / (widths.length || 1);
+    fragments.forEach((f) => {
+      const p = activePlacements[f.id];
+      if (!p) {
+        errors.push({ id: `unused-${f.id}`, kind: "error", title: `${f.label}: не размещён` });
+        return;
+      }
+      const rot = Math.abs(((p.rot + 540) % 360) - 180);
+      const rotAbs = Math.min(Math.abs(p.rot % 360), 360 - Math.abs(p.rot % 360));
+      if (rotAbs > 45)
+        warnings.push({ id: `rot-${f.id}`, kind: "warning", title: `${f.label}: сильный поворот (${Math.round(rotAbs)}°)` });
+      void rot;
+      if (meanW && Math.abs(p.w - meanW) / meanW > 0.4)
+        warnings.push({ id: `scale-${f.id}`, kind: "warning", title: `${f.label}: масштаб отличается от остальных` });
+    });
+
+    // Seam-level issues
+    currentSeams.forEach((s) => {
+      const pair = `${fragments.find((f) => f.id === s.a)?.label ?? s.a} ↔ ${fragments.find((f) => f.id === s.b)?.label ?? s.b}`;
+      if (s.kind === "overlap")
+        errors.push({ id: `ov-${s.id}`, kind: "error", title: `${pair}: наложение ${s.overlap.toFixed(0)}%` });
+      else if (s.kind === "gap")
+        warnings.push({ id: `gap-${s.id}`, kind: "warning", title: `${pair}: зазор ${s.gap.toFixed(1)}%` });
+      else if (s.kind === "rotation")
+        warnings.push({ id: `rd-${s.id}`, kind: "warning", title: `${pair}: разница поворота ${s.rotDiff.toFixed(0)}°` });
+    });
+
+    // Fragments without any neighbour (in matches or near seams)
+    const withNeighbour = new Set<string>();
+    matches.forEach((m) => { withNeighbour.add(m.a); withNeighbour.add(m.b); });
+    currentSeams.forEach((s) => { withNeighbour.add(s.a); withNeighbour.add(s.b); });
+    fragments.forEach((f) => {
+      if (!withNeighbour.has(f.id) && totalFragments > 1)
+        warnings.push({ id: `lone-${f.id}`, kind: "warning", title: `${f.label}: нет подтверждённого соседа` });
+    });
+
+    if (pendingPlacements)
+      warnings.push({ id: "pending", kind: "warning", title: "Есть несохранённая регистрация" });
+
+    // Matches list (marker + control-point pairs)
+    type MatchRow = { id: string; a: string; b: string; kind: "ink" | "cp" | "seam"; detail: string; status: "good" | "check" | "approx" };
+    const matchRows: MatchRow[] = [];
+    matches.forEach((m) => {
+      matchRows.push({
+        id: `ink-${m.a}-${m.b}`,
+        a: fragments.find((f) => f.id === m.a)?.label ?? m.a,
+        b: fragments.find((f) => f.id === m.b)?.label ?? m.b,
+        kind: "ink",
+        detail: `маркеры туши: ${m.colors.length}`,
+        status: m.colors.length >= 2 ? "good" : "check",
+      });
+    });
+    const cpPairs = new Map<string, { a?: string; b?: string; count: number }>();
+    controlPoints.forEach((cp) => {
+      const key = cp.fragmentId;
+      if (!cpPairs.has(key)) cpPairs.set(key, { a: key, count: 0 });
+    });
+    // count cp pairs across fragments
+    const cpByPair = new Map<string, Set<string>>();
+    controlPoints.forEach((cp) => {
+      if (!cpByPair.has(cp.pairId)) cpByPair.set(cp.pairId, new Set());
+      cpByPair.get(cp.pairId)!.add(cp.fragmentId);
+    });
+    const cpFragPairs = new Map<string, number>();
+    cpByPair.forEach((frags) => {
+      const arr = [...frags].sort();
+      if (arr.length === 2) {
+        const key = arr.join("|");
+        cpFragPairs.set(key, (cpFragPairs.get(key) ?? 0) + 1);
+      }
+    });
+    cpFragPairs.forEach((count, key) => {
+      const [a, b] = key.split("|");
+      matchRows.push({
+        id: `cp-${key}`,
+        a: fragments.find((f) => f.id === a)?.label ?? a,
+        b: fragments.find((f) => f.id === b)?.label ?? b,
+        kind: "cp",
+        detail: `контрольные точки: ${count}`,
+        status: count >= 3 ? "good" : count >= 1 ? "check" : "approx",
+      });
+    });
+    currentSeams.filter((s) => s.kind === "good").forEach((s) => {
+      matchRows.push({
+        id: `seam-${s.id}`,
+        a: fragments.find((f) => f.id === s.a)?.label ?? s.a,
+        b: fragments.find((f) => f.id === s.b)?.label ?? s.b,
+        kind: "seam",
+        detail: "край ткани",
+        status: "approx",
+      });
+    });
+
+    const matchCount = matchRows.length;
+    const errorCount = errors.length;
+    const warningCount = warnings.length;
+
+    // Score
+    let score = 40;
+    if (totalFragments > 0) score += Math.round((usedFragments / totalFragments) * 20);
+    score += Math.min(20, matches.length * 4);
+    score += Math.min(10, cpFragPairs.size * 3);
+    score += Math.min(10, currentSeams.filter((s) => s.kind === "good").length * 2);
+    score -= errorCount * 10;
+    score -= warningCount * 3;
+    if (pendingPlacements) score -= 5;
+    score = Math.max(0, Math.min(100, score));
+    if (totalFragments < 2) score = Math.min(score, 15);
+
+    let statusText: string;
+    let statusTone: "good" | "check" | "issues";
+    if (errorCount > 0) { statusText = "Есть ошибки"; statusTone = "issues"; }
+    else if (warningCount > 0 || pendingPlacements) { statusText = "Требуется проверка"; statusTone = "check"; }
+    else if (totalFragments >= 2 && usedFragments === totalFragments) { statusText = "Готово к экспорту"; statusTone = "good"; }
+    else { statusText = "Загрузите фрагменты"; statusTone = "check"; }
+
+    const problemFragmentIds = new Set<string>();
+    errors.concat(warnings).forEach((i) => {
+      const m = i.id.match(/-(F-\d+)/g);
+      m?.forEach((s) => problemFragmentIds.add(s.slice(1)));
+    });
+
+    return {
+      score,
+      matchCount,
+      errorCount,
+      warningCount,
+      totalFragments,
+      usedFragments,
+      matchRows,
+      errors,
+      warnings,
+      statusText,
+      statusTone,
+      problemFragmentIds,
+    };
+  }, [fragments, placements, pendingPlacements, matches, controlPoints]);
+
+
 
   const addControlPoint = useCallback(
     (fid: string, x: number, y: number) => {
