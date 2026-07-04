@@ -308,6 +308,23 @@ export function MascotAssistant({
               </>
             )}
           </div>
+
+          {phase === "idle" && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setExplainOpen((v) => !v)}
+                className="text-[12px] text-primary hover:underline focus:underline"
+              >
+                {explainOpen ? "Скрыть пояснение" : "Что будет сделано?"}
+              </button>
+              {explainOpen && (
+                <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed">
+                  Автосборка рассчитает сдвиг, поворот и масштаб фрагментов. Исходные изображения не изменяются, ткань не дорисовывается. Результат можно применить или отклонить.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
