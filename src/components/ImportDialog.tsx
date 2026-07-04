@@ -280,8 +280,7 @@ export function ImportDialog({
             <>
               <ServerCrash className="h-3.5 w-3.5" />
               <span>
-                Модуль .mrxs недоступен. Запустите backend-сервис (см. README).
-                Обычные PNG/JPG работают локально.
+                Демо-режим: PNG/JPG работают локально. Для .mrxs подключите backend (см. README).
               </span>
             </>
           ) : (
