@@ -781,6 +781,8 @@ function FragmentParams({
   resetPlacement,
   inkLevels,
   setInkLevel,
+  inkVisible,
+  toggleInkVisible,
   mode,
   setMode,
   inkOn,
@@ -792,11 +794,14 @@ function FragmentParams({
   resetPlacement: (id: string) => void;
   inkLevels: InkLevels;
   setInkLevel: (fid: string, label: string, value: number) => void;
+  inkVisible: InkVisibility;
+  toggleInkVisible: (fid: string, label: string) => void;
   mode: "auto" | "semi" | "manual";
   setMode: (m: "auto" | "semi" | "manual") => void;
   inkOn: boolean;
   setInkOn: (b: boolean) => void;
 }) {
+
   // Convert placement (% of canvas) to a pseudo-micrometer value for display.
   const pctToMkm = (v: number) => Math.round(v * 100);
   const mkmToPct = (v: number) => v / 100;
