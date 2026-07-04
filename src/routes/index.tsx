@@ -564,15 +564,15 @@ function Workspace() {
     toast("Регистрация сброшена");
   }, []);
 
-  // Auto: use marker matches to snap fragments to their first matched neighbour.
-  const runAutoRegistration = useCallback(() => {
-    if (!matches.length) {
-      setPendingPlacements(null);
-      setRegQuality("bad");
-      setRegResidual(null);
-      toast("Нет совпадений маркеров", { description: "Нанесите одинаковые цвета на края соседних фрагментов." });
-      return;
-    }
+  // Pure compute of an auto-registration proposal. Does not mutate any state.
+  const computeAutoProposal = useCallback((): {
+    placements?: Record<string, Placement>;
+    quality?: RegQuality;
+    error?: "few-fragments" | "no-markers" | "no-matches";
+  } => {
+    if (fragments.length < 2) return { error: "few-fragments" };
+    if (!strokes.length && !controlPoints.length) return { error: "no-markers" };
+    if (!matches.length) return { error: "no-matches" };
     const next: Record<string, Placement> = { ...placements };
     const moved = new Set<string>();
     const sorted = [...matches].sort((a, b) => b.colors.length - a.colors.length);
@@ -599,12 +599,31 @@ function Workspace() {
       moved.add(anchor);
       moved.add(target);
     }
-    setPendingPlacements(next);
-    const q: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
-    setRegQuality(q);
+    const quality: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
+    return { placements: next, quality };
+  }, [fragments, strokes, controlPoints, matches, placements]);
+
+  // Auto: use marker matches to snap fragments to their first matched neighbour.
+  const runAutoRegistration = useCallback(() => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      setPendingPlacements(null);
+      setRegQuality("bad");
+      setRegResidual(null);
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки."
+            : "Нет совпадений маркеров: нанесите одинаковые цвета на края соседних фрагментов.";
+      toast("Автосовмещение не выполнено", { description: msg });
+      return;
+    }
+    setPendingPlacements(res.placements);
+    setRegQuality(res.quality ?? "check");
     setRegResidual(null);
     toast("Автосовмещение выполнено", { description: `Пар: ${matches.length}` });
-  }, [matches, strokes, placements]);
+  }, [computeAutoProposal, matches]);
 
   const runSemiRegistration = useCallback(() => {
     if (!regPair) { toast("Выберите пару фрагментов"); return; }
