@@ -723,18 +723,7 @@ function FragmentParams({
                   style={{ backgroundColor: m.color }}
                 />
                 <div className="relative flex-1 h-4 flex items-center">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={pct}
-                    onChange={(e) =>
-                      setInkLevel(fragment.id, m.label, Number(e.target.value))
-                    }
-                    aria-label={`Маркер туши ${m.label}`}
-                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                  />
-                  <div className="relative flex-1 h-1.5 rounded-full bg-secondary">
+                  <div className="relative flex-1 h-1.5 rounded-full bg-secondary pointer-events-none">
                     <div
                       className="absolute inset-y-0 left-0 rounded-full"
                       style={{
@@ -748,7 +737,19 @@ function FragmentParams({
                       style={{ left: `${pct}%`, borderColor: m.color }}
                     />
                   </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={pct}
+                    onChange={(e) =>
+                      setInkLevel(fragment.id, m.label, Number(e.target.value))
+                    }
+                    aria-label={`Маркер туши ${m.label}`}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
                 </div>
+
                 <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="text-xs w-8 text-right tabular-nums">{pct}</span>
               </li>
