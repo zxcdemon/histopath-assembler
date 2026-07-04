@@ -464,6 +464,8 @@ function Canvas({
     onSelect(id);
     const layer = layerRef.current;
     if (!layer) return;
+    commitHistory();
+
     const rect = layer.getBoundingClientRect();
     const start = placements[id];
     const startPx = { x: e.clientX, y: e.clientY };
