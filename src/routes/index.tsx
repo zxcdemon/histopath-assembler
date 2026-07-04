@@ -1290,6 +1290,32 @@ function Workspace() {
         onShowSuggestion={assistantShowSuggestion}
         onApplySuggestion={assistantApplySuggestion}
         onHideSuggestion={assistantHideSuggestion}
+        metrics={{
+          score: assemblyMetrics.score,
+          matchCount: assemblyMetrics.matchCount,
+          errorCount: assemblyMetrics.errorCount,
+          warningCount: assemblyMetrics.warningCount,
+          totalFragments: assemblyMetrics.totalFragments,
+          usedFragments: assemblyMetrics.usedFragments,
+          statusText: assemblyMetrics.statusText,
+          statusTone: assemblyMetrics.statusTone,
+        }}
+      />
+      <AssemblyDetailsSheet
+        open={assemblyDetailsOpen}
+        onOpenChange={setAssemblyDetailsOpen}
+        metrics={assemblyMetrics}
+        warningsHidden={warningsHidden}
+        onToggleWarnings={() => setWarningsHidden((v) => !v)}
+        onHighlightProblems={() => {
+          setHighlightProblems(true);
+          toast("Проблемные места подсвечены", { description: "Подсветка исчезнет через несколько секунд." });
+          setTimeout(() => setHighlightProblems(false), 4000);
+        }}
+        onGoToRegistration={() => {
+          setAssemblyDetailsOpen(false);
+          setSection("registration");
+        }}
       />
       <ImportDialog
         open={importOpen}
