@@ -75,8 +75,17 @@ const INK_MARKERS = [
   { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4 },
 ];
 
+const INK_MARKERS = [
+  { color: "oklch(0.20 0.02 260)", label: "Чёрный", count: 4, edge: "top" as const },
+  { color: "oklch(0.60 0.22 27)", label: "Красный", count: 4, edge: "right" as const },
+  { color: "oklch(0.58 0.20 260)", label: "Синий", count: 4, edge: "bottom" as const },
+  { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4, edge: "left" as const },
+];
+
 type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean };
 type InkLevels = Record<string, number>;
+type InkVisibility = Record<string, boolean>;
+export type InkMarker = (typeof INK_MARKERS)[number];
 
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
@@ -99,6 +108,38 @@ function Workspace() {
     );
     return init;
   });
+  const [inkVisible, setInkVisible] = useState<InkVisibility>(() => {
+    const init: InkVisibility = {};
+    FRAGMENTS.forEach((f) =>
+      INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = true)),
+    );
+    return init;
+  });
+
+  // Undo/redo history for placements.
+  const [history, setHistory] = useState<{ past: Record<string, Placement>[]; future: Record<string, Placement>[] }>({
+    past: [],
+    future: [],
+  });
+  const commitHistory = useCallback(() => {
+    setHistory((h) => ({ past: [...h.past, placements], future: [] }));
+  }, [placements]);
+  const undo = useCallback(() => {
+    setHistory((h) => {
+      if (!h.past.length) return h;
+      const prev = h.past[h.past.length - 1];
+      setPlacements(prev);
+      return { past: h.past.slice(0, -1), future: [placements, ...h.future] };
+    });
+  }, [placements]);
+  const redo = useCallback(() => {
+    setHistory((h) => {
+      if (!h.future.length) return h;
+      const next = h.future[0];
+      setPlacements(next);
+      return { past: [...h.past, placements], future: h.future.slice(1) };
+    });
+  }, [placements]);
 
   const updatePlacement = (id: string, patch: Partial<Placement>) =>
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -106,6 +147,7 @@ function Workspace() {
   const resetPlacement = (id: string) => {
     const src = FRAGMENTS.find((f) => f.id === id);
     if (src) {
+      commitHistory();
       setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
       toast("Трансформации сброшены", { description: `Фрагмент ${id}` });
     }
@@ -114,11 +156,45 @@ function Workspace() {
   const setInkLevel = (fid: string, label: string, value: number) =>
     setInkLevels((prev) => ({ ...prev, [inkKey(fid, label)]: value }));
 
+  const toggleInkVisible = (fid: string, label: string) =>
+    setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
+
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
     [selectedId],
   );
 
+  // Keyboard shortcuts: arrows nudge, R rotate, F flip, Esc deselect, Ctrl+Z/Y undo/redo.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (meta && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (!selected) return;
+      const step = e.shiftKey ? 5 : 1;
+      const p = placements[selected.id];
+      if (!p) return;
+      if (e.key === "ArrowLeft") { commitHistory(); updatePlacement(selected.id, { x: p.x - step }); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { commitHistory(); updatePlacement(selected.id, { x: p.x + step }); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { commitHistory(); updatePlacement(selected.id, { y: p.y - step }); e.preventDefault(); }
+      else if (e.key === "ArrowDown") { commitHistory(); updatePlacement(selected.id, { y: p.y + step }); e.preventDefault(); }
+      else if (e.key.toLowerCase() === "r") { commitHistory(); updatePlacement(selected.id, { rot: p.rot + (e.shiftKey ? -15 : 15) }); }
+      else if (e.key.toLowerCase() === "f") { commitHistory(); updatePlacement(selected.id, { flip: !p.flip }); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected, placements, commitHistory, undo, redo]);
 
   const handleSection = (id: string) => {
     setSection(id);
@@ -130,6 +206,7 @@ function Workspace() {
     };
     if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
   };
+
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
