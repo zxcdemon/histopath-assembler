@@ -472,6 +472,8 @@ function Workspace() {
   const [pendingPlacements, setPendingPlacements] = useState<Record<string, Placement> | null>(null);
   const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
   const [regResidual, setRegResidual] = useState<number | null>(null);
+  // Ghost suggestion overlay (assistant "Показать подсказку"): does not touch real placements.
+  const [ghostPlacements, setGhostPlacements] = useState<Record<string, Placement> | null>(null);
   const registrationMode = section === "registration";
   const previewMode = section === "preview";
 
