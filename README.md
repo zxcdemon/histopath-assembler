@@ -87,6 +87,7 @@ uvicorn main:app --reload --port 8000
 | `/health` | GET | Проверка доступности + флаг `openslide`. |
 | `/cases` | POST | Создать case. |
 | `/cases/{id}/fragments` | POST | Загрузить `.mrxs` или изображение. |
+| `/cases/{id}/fragments/archive` | POST | Загрузить ZIP-архив с `.mrxs` + сателлитом. |
 | `/cases/{id}/fragments` | GET | Список фрагментов с metadata (уровни, mpp). |
 | `/fragments/{case}/{frag}/thumbnail` | GET | JPEG-превью. |
 | `/fragments/{case}/{frag}/tile/{level}/{x}/{y}` | GET | Тайл 256×256 JPEG. |
