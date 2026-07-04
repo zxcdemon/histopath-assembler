@@ -45,6 +45,7 @@ export function MascotAssistant({
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const close = () => {
     setOpen(false);
