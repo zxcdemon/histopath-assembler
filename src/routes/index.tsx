@@ -285,12 +285,91 @@ function Canvas({
   onSelect,
   zoom,
   setZoom,
+  placements,
+  updatePlacement,
 }: {
   selectedId: string;
   onSelect: (id: string) => void;
   zoom: number;
   setZoom: (n: number) => void;
+  placements: Record<string, Placement>;
+  updatePlacement: (id: string, patch: Partial<Placement>) => void;
 }) {
+  const layerRef = useRef<HTMLDivElement | null>(null);
+
+  const startDrag = (id: string) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(id);
+    const layer = layerRef.current;
+    if (!layer) return;
+    const rect = layer.getBoundingClientRect();
+    const start = placements[id];
+    const startPx = { x: e.clientX, y: e.clientY };
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const dx = ((ev.clientX - startPx.x) / rect.width) * 100;
+      const dy = ((ev.clientY - startPx.y) / rect.height) * 100;
+      updatePlacement(id, {
+        x: Math.max(-5, Math.min(95, start.x + dx)),
+        y: Math.max(-5, Math.min(95, start.y + dy)),
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const startResize = (id: string) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const layer = layerRef.current;
+    if (!layer) return;
+    const rect = layer.getBoundingClientRect();
+    const start = placements[id];
+    const startPx = { x: e.clientX, y: e.clientY };
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const dx = ((ev.clientX - startPx.x) / rect.width) * 100;
+      const dy = ((ev.clientY - startPx.y) / rect.height) * 100;
+      const delta = (dx + dy) / 2;
+      updatePlacement(id, { w: Math.max(6, Math.min(80, start.w + delta)) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const startRotate = (id: string) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const el = (e.currentTarget as HTMLElement).closest("[data-fragment]") as HTMLElement | null;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const angle =
+        (Math.atan2(ev.clientY - center.y, ev.clientX - center.x) * 180) / Math.PI + 90;
+      updatePlacement(id, { rot: Math.round(angle * 10) / 10 });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
     <div className="relative flex-1 min-h-0 bg-canvas overflow-hidden">
       {/* Guides */}
@@ -300,22 +379,24 @@ function Canvas({
       </div>
 
       {/* Fragments layer */}
-      <div className="absolute inset-6 md:inset-10">
+      <div ref={layerRef} className="absolute inset-6 md:inset-10">
         {FRAGMENTS.map((f) => {
           const isSel = f.id === selectedId;
+          const p = placements[f.id];
           return (
-            <button
+            <div
               key={f.id}
-              onClick={() => onSelect(f.id)}
-              className="absolute group"
+              data-fragment={f.id}
+              onPointerDown={startDrag(f.id)}
+              className="absolute group touch-none select-none cursor-move"
               style={{
-                left: `${f.place.x}%`,
-                top: `${f.place.y}%`,
-                width: `${f.place.w}%`,
-                transform: `rotate(${f.place.rot}deg)`,
+                left: `${p.x}%`,
+                top: `${p.y}%`,
+                width: `${p.w}%`,
+                transform: `rotate(${p.rot}deg)`,
                 transformOrigin: "center",
               }}
-              aria-label={`Выбрать фрагмент ${f.label}`}
+              aria-label={`Фрагмент ${f.label}`}
             >
               <div className="relative">
                 <div
@@ -325,14 +406,19 @@ function Canvas({
                     outlineOffset: isSel ? 2 : 0,
                   }}
                 >
-                  <FragmentImage fragment={f} className="w-full h-full" />
+                  <FragmentImage fragment={f} className="w-full h-full pointer-events-none" />
                 </div>
-                {isSel && <SelectionHandles />}
-                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground">
+                {isSel && (
+                  <SelectionHandles
+                    onResize={startResize(f.id)}
+                    onRotate={startRotate(f.id)}
+                  />
+                )}
+                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none">
                   {f.label}
                 </span>
               </div>
-            </button>
+            </div>
           );
         })}
         {/* alignment cross marks */}
@@ -366,22 +452,42 @@ function Canvas({
   );
 }
 
-function SelectionHandles() {
-  const handle = "absolute w-2 h-2 bg-panel border border-primary rounded-[2px]";
+function SelectionHandles({
+  onResize,
+  onRotate,
+}: {
+  onResize: (e: ReactPointerEvent) => void;
+  onRotate: (e: ReactPointerEvent) => void;
+}) {
+  const handle = "absolute w-2.5 h-2.5 bg-panel border border-primary rounded-[2px]";
   return (
     <>
       <span className={`${handle} -top-1 -left-1`} />
       <span className={`${handle} -top-1 left-1/2 -translate-x-1/2`} />
       <span className={`${handle} -top-1 -right-1`} />
       <span className={`${handle} top-1/2 -left-1 -translate-y-1/2`} />
-      <span className={`${handle} top-1/2 -right-1 -translate-y-1/2`} />
+      <span
+        onPointerDown={onResize}
+        className={`${handle} top-1/2 -right-1 -translate-y-1/2 cursor-ew-resize`}
+      />
       <span className={`${handle} -bottom-1 -left-1`} />
       <span className={`${handle} -bottom-1 left-1/2 -translate-x-1/2`} />
-      <span className={`${handle} -bottom-1 -right-1`} />
-      <span className="absolute -top-6 left-1/2 -translate-x-1/2 h-3 w-3 rounded-full border border-primary bg-panel" />
+      <span
+        onPointerDown={onResize}
+        className={`${handle} -bottom-1 -right-1 cursor-nwse-resize`}
+        style={{ width: 14, height: 14 }}
+      />
+      <span
+        onPointerDown={onRotate}
+        title="Повернуть"
+        className="absolute -top-7 left-1/2 -translate-x-1/2 h-4 w-4 rounded-full border border-primary bg-panel cursor-grab flex items-center justify-center"
+      >
+        <RotateCcw className="h-2.5 w-2.5 text-primary" />
+      </span>
     </>
   );
 }
+
 
 function BottomBar({
   selectedId,
