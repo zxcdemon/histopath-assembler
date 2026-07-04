@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.storage import Storage
 from services.openslide_service import OpenSlideService, WSIUnavailable
@@ -88,9 +88,9 @@ class ControlPoint(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    markers: list[Marker] = []
-    controlPoints: list[ControlPoint] = []
-    currentTransforms: dict[str, Transform] = {}
+    markers: list[Marker] = Field(default_factory=list)
+    controlPoints: list[ControlPoint] = Field(default_factory=list)
+    currentTransforms: dict[str, Transform] = Field(default_factory=dict)
 
 
 class PreviewIn(BaseModel):
@@ -100,10 +100,48 @@ class PreviewIn(BaseModel):
 
 class ExportIn(BaseModel):
     transforms: dict[str, Transform]
-    markers: list[Marker] = []
-    controlPoints: list[ControlPoint] = []
-    metrics: dict[str, Any] = {}
+    markers: list[Marker] = Field(default_factory=list)
+    controlPoints: list[ControlPoint] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
     format: str = "ome-tiff"  # "ome-tiff" | "bigtiff" | "png"
+
+
+def _is_wsi_name(filename: str | None) -> bool:
+    suffix = Path(filename or "").suffix.lower()
+    return suffix in {".mrxs", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".bif"}
+
+
+def _normalised_export_format(raw_format: str) -> str:
+    fmt = raw_format.lower().strip()
+
+    if fmt == "big-tiff":
+        return "bigtiff"
+
+    if fmt in {"png", "ome-tiff", "bigtiff"}:
+        return fmt
+
+    raise HTTPException(400, "Unsupported export format")
+
+
+def _export_filename(case_id: str, fmt: str) -> str:
+    if fmt == "png":
+        return f"histotopogram_{case_id}.png"
+
+    if fmt == "bigtiff":
+        return f"histotopogram_{case_id}.bigtiff.tif"
+
+    return f"histotopogram_{case_id}.ome.tif"
+
+
+async def _stream_upload_to_path(file: UploadFile, destination: Path) -> None:
+    with destination.open("wb") as output:
+        while True:
+            chunk = await file.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            output.write(chunk)
 
 
 # ---------- Health ----------
