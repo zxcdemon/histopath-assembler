@@ -30,10 +30,14 @@ import {
   Info,
   RotateCcw,
   FlipHorizontal,
-
   ChevronUp,
   EyeOff,
   SlidersHorizontal,
+  Brush,
+  Eraser,
+  Trash2,
+  Download,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +86,24 @@ type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean 
 type InkLevels = Record<string, number>;
 type InkVisibility = Record<string, boolean>;
 export type InkMarker = (typeof INK_MARKERS)[number];
+
+// Painted ink markers (brush strokes) — real inking tool.
+export type MarkerPoint = { x: number; y: number };
+export type MarkerStroke = {
+  id: string;
+  fragmentId: string;
+  color: string;
+  size: number; // in % of fragment box
+  points: MarkerPoint[];
+  createdAt: number;
+};
+export type MarkerTool = "brush" | "eraser";
+const MARKER_PALETTE = [
+  "#111827", "#ef4444", "#3b82f6", "#22c55e",
+  "#eab308", "#a855f7", "#f97316", "#06b6d4",
+];
+const CASE_ID = "2025-05-20_Печень_Биопсия";
+const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
 
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
@@ -157,6 +179,130 @@ function Workspace() {
   const toggleInkVisible = (fid: string, label: string) =>
     setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
 
+  // ============= Painted markers (brush) =============
+  const [strokes, setStrokes] = useState<MarkerStroke[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(MARKERS_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as MarkerStroke[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [strokePast, setStrokePast] = useState<MarkerStroke[][]>([]);
+  const [brushColor, setBrushColor] = useState<string>(MARKER_PALETTE[1]);
+  const [brushSize, setBrushSize] = useState<number>(3);
+  const [brushTool, setBrushTool] = useState<MarkerTool>("brush");
+  const paintMode = section === "markers";
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(strokes));
+    } catch {
+      /* quota / disabled */
+    }
+  }, [strokes]);
+
+  const snapshotStrokes = useCallback(() => {
+    setStrokePast((h) => [...h.slice(-49), strokes]);
+  }, [strokes]);
+  const undoStroke = useCallback(() => {
+    setStrokePast((h) => {
+      if (!h.length) return h;
+      setStrokes(h[h.length - 1]);
+      return h.slice(0, -1);
+    });
+  }, []);
+  const clearFragmentStrokes = useCallback(
+    (fid: string) => {
+      snapshotStrokes();
+      setStrokes((s) => s.filter((x) => x.fragmentId !== fid));
+      toast("Маркеры фрагмента удалены", { description: fid });
+    },
+    [snapshotStrokes],
+  );
+  const addStroke = useCallback((s: MarkerStroke) => {
+    setStrokes((prev) => [...prev, s]);
+  }, []);
+  const updateStrokePoints = useCallback((id: string, points: MarkerPoint[]) => {
+    setStrokes((prev) => prev.map((s) => (s.id === id ? { ...s, points: [...points] } : s)));
+  }, []);
+  const eraseNear = useCallback((fid: string, x: number, y: number, radius: number) => {
+    setStrokes((prev) =>
+      prev.filter((st) => {
+        if (st.fragmentId !== fid) return true;
+        return !st.points.some((p) => Math.hypot(p.x - x, p.y - y) < radius);
+      }),
+    );
+  }, []);
+
+  // Matches between fragments: shared marker colors → possible neighbours.
+  const matches = useMemo(() => {
+    const byFrag = new Map<string, Set<string>>();
+    strokes.forEach((s) => {
+      if (!byFrag.has(s.fragmentId)) byFrag.set(s.fragmentId, new Set());
+      byFrag.get(s.fragmentId)!.add(s.color);
+    });
+    const ids = [...byFrag.keys()];
+    const pairs: { a: string; b: string; colors: string[] }[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = byFrag.get(ids[i])!;
+        const b = byFrag.get(ids[j])!;
+        const common = [...a].filter((c) => b.has(c));
+        if (common.length) pairs.push({ a: ids[i], b: ids[j], colors: common });
+      }
+    }
+    return pairs;
+  }, [strokes]);
+  const matchedColorsByFragment = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    matches.forEach(({ a, b, colors }) => {
+      if (!m.has(a)) m.set(a, new Set());
+      if (!m.has(b)) m.set(b, new Set());
+      colors.forEach((c) => {
+        m.get(a)!.add(c);
+        m.get(b)!.add(c);
+      });
+    });
+    return m;
+  }, [matches]);
+
+  const exportMarkers = useCallback(() => {
+    const payload = {
+      caseId: CASE_ID,
+      exportedAt: new Date().toISOString(),
+      fragments: fragments.map((f) => ({
+        id: f.id,
+        label: f.label,
+        placement: placements[f.id],
+        strokes: strokes
+          .filter((s) => s.fragmentId === f.id)
+          .map((s) => ({ id: s.id, color: s.color, size: s.size, points: s.points })),
+        neighbours: matches
+          .filter((m) => m.a === f.id || m.b === f.id)
+          .map((m) => ({
+            fragmentId: m.a === f.id ? m.b : m.a,
+            sharedColors: m.colors,
+          })),
+      })),
+    };
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${CASE_ID}-markers.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Маркеры экспортированы", { description: `${payload.fragments.length} фрагмент(ов)` });
+    } catch {
+      toast("Не удалось экспортировать маркеры");
+    }
+  }, [fragments, placements, strokes, matches]);
+
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
     setPlacements((prev) => {
@@ -198,7 +344,10 @@ function Workspace() {
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        if (e.shiftKey) redo();
+        if (paintMode) {
+          if (e.shiftKey) return;
+          undoStroke();
+        } else if (e.shiftKey) redo();
         else undo();
         return;
       }
@@ -207,6 +356,7 @@ function Workspace() {
         redo();
         return;
       }
+      if (paintMode) return; // in painting mode, arrows/R/F don't nudge
       if (!selected) return;
       const step = e.shiftKey ? 5 : 1;
       const p = placements[selected.id];
@@ -220,7 +370,7 @@ function Workspace() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected, placements, commitHistory, undo, redo]);
+  }, [selected, placements, commitHistory, undo, redo, paintMode, undoStroke]);
 
   const handleSection = (id: string) => {
     setSection(id);
@@ -275,6 +425,16 @@ function Workspace() {
             inkOn={inkOn}
             inkLevels={inkLevels}
             inkVisible={inkVisible}
+            paintMode={paintMode}
+            strokes={strokes}
+            brushColor={brushColor}
+            brushSize={brushSize}
+            brushTool={brushTool}
+            addStroke={addStroke}
+            updateStrokePoints={updateStrokePoints}
+            eraseNear={eraseNear}
+            snapshotStrokes={snapshotStrokes}
+            matchedColorsByFragment={matchedColorsByFragment}
           />
 
 
@@ -298,6 +458,23 @@ function Workspace() {
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
+          {paintMode && (
+            <MarkerTools
+              fragment={selected}
+              strokes={strokes}
+              matches={matches}
+              brushColor={brushColor}
+              setBrushColor={setBrushColor}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              brushTool={brushTool}
+              setBrushTool={setBrushTool}
+              onUndo={undoStroke}
+              canUndo={strokePast.length > 0}
+              onClear={() => clearFragmentStrokes(selected.id)}
+              onExport={exportMarkers}
+            />
+          )}
           <FragmentParams
             fragment={selected}
             placement={placements[selected.id]}
@@ -317,6 +494,23 @@ function Workspace() {
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
           <SheetContent side="right" className="p-0 w-[320px] max-w-[90vw] overflow-y-auto">
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
+            {paintMode && (
+              <MarkerTools
+                fragment={selected}
+                strokes={strokes}
+                matches={matches}
+                brushColor={brushColor}
+                setBrushColor={setBrushColor}
+                brushSize={brushSize}
+                setBrushSize={setBrushSize}
+                brushTool={brushTool}
+                setBrushTool={setBrushTool}
+                onUndo={undoStroke}
+                canUndo={strokePast.length > 0}
+                onClear={() => clearFragmentStrokes(selected.id)}
+                onExport={exportMarkers}
+              />
+            )}
             <FragmentParams
               fragment={selected}
               placement={placements[selected.id]}
@@ -491,9 +685,18 @@ function Canvas({
   inkOn,
   inkLevels,
   inkVisible,
+  paintMode,
+  strokes,
+  brushColor,
+  brushSize,
+  brushTool,
+  addStroke,
+  updateStrokePoints,
+  eraseNear,
+  snapshotStrokes,
+  matchedColorsByFragment,
 }: {
   fragments: Fragment[];
-
   selectedId: string;
   onSelect: (id: string) => void;
   zoom: number;
@@ -504,6 +707,16 @@ function Canvas({
   inkOn: boolean;
   inkLevels: InkLevels;
   inkVisible: InkVisibility;
+  paintMode: boolean;
+  strokes: MarkerStroke[];
+  brushColor: string;
+  brushSize: number;
+  brushTool: MarkerTool;
+  addStroke: (s: MarkerStroke) => void;
+  updateStrokePoints: (id: string, points: MarkerPoint[]) => void;
+  eraseNear: (fid: string, x: number, y: number, radius: number) => void;
+  snapshotStrokes: () => void;
+  matchedColorsByFragment: Map<string, Set<string>>;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -587,6 +800,62 @@ function Canvas({
     window.addEventListener("pointerup", up);
   };
 
+
+  const startPaint = (id: string) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(id);
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const target = e.currentTarget as HTMLElement;
+    try { target.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const toLocal = (cx: number, cy: number) => ({
+      x: Math.max(0, Math.min(100, ((cx - box.left) / box.width) * 100)),
+      y: Math.max(0, Math.min(100, ((cy - box.top) / box.height) * 100)),
+    });
+    if (brushTool === "eraser") {
+      snapshotStrokes();
+      const radius = Math.max(1.5, brushSize * 1.4);
+      const p0 = toLocal(e.clientX, e.clientY);
+      eraseNear(id, p0.x, p0.y, radius);
+      const move = (ev: PointerEvent) => {
+        const p = toLocal(ev.clientX, ev.clientY);
+        eraseNear(id, p.x, p.y, radius);
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
+    snapshotStrokes();
+    const strokeId = `st-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const first = toLocal(e.clientX, e.clientY);
+    const points: MarkerPoint[] = [first, { x: first.x + 0.01, y: first.y + 0.01 }];
+    addStroke({
+      id: strokeId,
+      fragmentId: id,
+      color: brushColor,
+      size: brushSize,
+      points: [...points],
+      createdAt: Date.now(),
+    });
+    const move = (ev: PointerEvent) => {
+      const p = toLocal(ev.clientX, ev.clientY);
+      const last = points[points.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) < 0.4) return;
+      points.push(p);
+      updateStrokePoints(strokeId, points);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
     <div className="relative flex-1 min-h-0 bg-canvas overflow-hidden">
       {/* Guides */}
@@ -594,6 +863,13 @@ function Canvas({
         <div className="absolute left-1/2 top-0 bottom-0 w-px border-l border-dashed border-border/80" />
         <div className="absolute top-1/2 left-0 right-0 h-px border-t border-dashed border-border/80" />
       </div>
+
+      {paintMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 rounded-full bg-panel border border-border shadow-panel px-3 py-1 text-[11px] font-medium text-muted-foreground flex items-center gap-2 pointer-events-none">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: brushColor }} />
+          Режим маркеров: {brushTool === "brush" ? "кисть" : "ластик"} · {brushSize}px
+        </div>
+      )}
 
       {/* Fragments layer */}
       <div
@@ -603,15 +879,16 @@ function Canvas({
       >
 
         {fragments.map((f) => {
-
           const isSel = f.id === selectedId;
           const p = placements[f.id];
+          const matchedColors = matchedColorsByFragment.get(f.id);
+          const fragStrokes = strokes.filter((s) => s.fragmentId === f.id);
           return (
             <div
               key={f.id}
               data-fragment={f.id}
-              onPointerDown={startDrag(f.id)}
-              className="absolute group touch-none select-none cursor-move"
+              onPointerDown={paintMode ? startPaint(f.id) : startDrag(f.id)}
+              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : "cursor-move"}`}
               style={{
                 left: `${p.x}%`,
                 top: `${p.y}%`,
@@ -623,7 +900,7 @@ function Canvas({
             >
               <div className="relative">
                 <div
-                  className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden"
+                  className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden relative"
                   style={{
                     outline: isSel ? "2px solid var(--primary)" : "none",
                     outlineOffset: isSel ? 2 : 0,
@@ -649,9 +926,47 @@ function Canvas({
                       if (m.edge === "right") Object.assign(side, { top: 0, bottom: 0, right: 0, width: `${thickness}%` });
                       return <span key={m.label} style={side} />;
                     })}
+
+                  {/* Painted marker strokes */}
+                  {fragStrokes.length > 0 && (
+                    <svg
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                    >
+                      {fragStrokes.map((s) => {
+                        const isMatch = matchedColors?.has(s.color);
+                        const pts = s.points.map((pt) => `${pt.x},${pt.y}`).join(" ");
+                        return (
+                          <g key={s.id}>
+                            {isMatch && (
+                              <polyline
+                                points={pts}
+                                stroke={s.color}
+                                strokeWidth={s.size + 3}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                fill="none"
+                                opacity={0.35}
+                              />
+                            )}
+                            <polyline
+                              points={pts}
+                              stroke={s.color}
+                              strokeWidth={s.size}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill="none"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
                 </div>
 
-                {isSel && (
+                {isSel && !paintMode && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
                     onRotate={startRotate(f.id)}
@@ -662,8 +977,14 @@ function Canvas({
                   />
                 )}
 
-                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none">
+                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none flex items-center gap-1">
                   {f.label}
+                  {matchedColors && matchedColors.size > 0 && (
+                    <span className="inline-flex items-center gap-0.5 ml-1 text-primary" title="Есть совпадения по маркерам">
+                      <Link2 className="h-2.5 w-2.5" />
+                      {matchedColors.size}
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
@@ -1048,4 +1369,186 @@ function ParamRow({
     </div>
   );
 }
+
+function MarkerTools({
+  fragment,
+  strokes,
+  matches,
+  brushColor,
+  setBrushColor,
+  brushSize,
+  setBrushSize,
+  brushTool,
+  setBrushTool,
+  onUndo,
+  canUndo,
+  onClear,
+  onExport,
+}: {
+  fragment: Fragment;
+  strokes: MarkerStroke[];
+  matches: { a: string; b: string; colors: string[] }[];
+  brushColor: string;
+  setBrushColor: (c: string) => void;
+  brushSize: number;
+  setBrushSize: (n: number) => void;
+  brushTool: MarkerTool;
+  setBrushTool: (t: MarkerTool) => void;
+  onUndo: () => void;
+  canUndo: boolean;
+  onClear: () => void;
+  onExport: () => void;
+}) {
+  const fragStrokes = strokes.filter((s) => s.fragmentId === fragment.id);
+  const relatedMatches = matches.filter((m) => m.a === fragment.id || m.b === fragment.id);
+  return (
+    <div className="p-4 space-y-4 border-b border-border bg-accent/30">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Маркеры туши</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Нанесите цветную тушь на любой участок края фрагмента.
+          </p>
+        </div>
+        <MapPin className="h-5 w-5 text-primary" />
+      </div>
+
+      {/* Tool switch */}
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1 text-xs font-medium">
+        <button
+          onClick={() => setBrushTool("brush")}
+          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-colors ${
+            brushTool === "brush" ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Brush className="h-3.5 w-3.5" /> Кисть
+        </button>
+        <button
+          onClick={() => setBrushTool("eraser")}
+          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-colors ${
+            brushTool === "eraser" ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Eraser className="h-3.5 w-3.5" /> Ластик
+        </button>
+      </div>
+
+      {/* Palette */}
+      <div>
+        <div className="text-xs text-muted-foreground mb-1.5">Цвет</div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {MARKER_PALETTE.map((c) => (
+            <button
+              key={c}
+              onClick={() => { setBrushColor(c); setBrushTool("brush"); }}
+              aria-label={`Цвет ${c}`}
+              className={`h-6 w-6 rounded-full border-2 transition-transform ${
+                brushColor === c ? "border-foreground scale-110" : "border-transparent hover:scale-105"
+              }`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+          <label className="h-6 w-6 rounded-full border border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden relative" title="Свой цвет">
+            <Plus className="h-3 w-3 text-muted-foreground" />
+            <input
+              type="color"
+              value={brushColor}
+              onChange={(e) => { setBrushColor(e.target.value); setBrushTool("brush"); }}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Brush size */}
+      <div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+          <span>Размер кисти</span>
+          <span className="tabular-nums text-foreground">{brushSize}px</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={10}
+          step={0.5}
+          value={brushSize}
+          onChange={(e) => setBrushSize(Number(e.target.value))}
+          className="w-full accent-primary"
+          aria-label="Размер кисти"
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="grid grid-cols-3 gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onUndo}
+          disabled={!canUndo}
+        >
+          <Undo2 className="h-3.5 w-3.5" /> Отменить
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onClear}
+          disabled={fragStrokes.length === 0}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Очистить
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onExport}
+        >
+          <Download className="h-3.5 w-3.5" /> Экспорт
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="rounded-lg border border-border bg-panel p-2.5 text-xs space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Штрихов на фрагменте</span>
+          <span className="font-medium tabular-nums">{fragStrokes.length}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Всего маркеров в кейсе</span>
+          <span className="font-medium tabular-nums">{strokes.length}</span>
+        </div>
+        <div className="pt-1 border-t border-border">
+          <div className="flex items-center gap-1 text-muted-foreground mb-1">
+            <Link2 className="h-3 w-3 text-primary" />
+            Возможные соседи ({relatedMatches.length})
+          </div>
+          {relatedMatches.length === 0 ? (
+            <div className="text-muted-foreground/70 text-[11px]">
+              Пометьте одинаковым цветом края соседних фрагментов, чтобы система предложила стыковку.
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {relatedMatches.map((m, i) => (
+                <li key={i} className="flex items-center gap-1.5">
+                  <span className="font-medium">{m.a === fragment.id ? m.b : m.a}</span>
+                  <span className="ml-auto flex items-center gap-1">
+                    {m.colors.map((c) => (
+                      <span
+                        key={c}
+                        className="h-2.5 w-2.5 rounded-full border border-border"
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
