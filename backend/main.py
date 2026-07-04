@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any
+
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
