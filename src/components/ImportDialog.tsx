@@ -154,10 +154,12 @@ export function ImportDialog({
           caseId = c.caseId;
         } catch (e) {
           console.warn("createCase failed", e);
-          toast.error("Модуль .mrxs недоступен. Запустите backend-сервис");
+          toast.error("Backend не отвечает", {
+            description: "Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.",
+          });
         }
       } else if (!ready && hasMrxs) {
-        toast.error("Для .mrxs нужно запустить backend с OpenSlide");
+        toast.warning("Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.");
       }
 
       const out: Fragment[] = [];
@@ -280,8 +282,7 @@ export function ImportDialog({
             <>
               <ServerCrash className="h-3.5 w-3.5" />
               <span>
-                Модуль .mrxs недоступен. Запустите backend-сервис (см. README).
-                Обычные PNG/JPG работают локально.
+                Демо-режим: PNG/JPG работают локально. Для .mrxs подключите backend (см. README).
               </span>
             </>
           ) : (

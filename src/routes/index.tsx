@@ -62,7 +62,7 @@ import {
   transformsToPlacements,
   controlPointsToBackend,
 } from "@/lib/backend-hooks";
-import { ServerCrash, ServerCog, Wand2 } from "lucide-react";
+import { ServerCog, Wand2 } from "lucide-react";
 
 import { MascotAssistant } from "@/components/MascotAssistant";
 
@@ -1153,35 +1153,17 @@ function Workspace() {
         </Sheet>
 
         <main className="flex-1 flex flex-col min-w-0 relative">
-          {/* Backend status banner */}
-          {backendAvailable !== null && (
-            <div
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${
-                backendAvailable === true
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : backendAvailable === false
-                  ? "border-amber-200 bg-amber-50 text-amber-900"
-                  : "border-border bg-secondary/40 text-muted-foreground"
-              }`}
-            >
-              {backendAvailable === true ? (
-                <>
-                  <ServerCog className="h-3.5 w-3.5" />
-                  <span>
-                    Backend подключён{backendCaseId ? ` · case ${backendCaseId}` : ""}
-                    {isUploading ? " · загрузка…" : ""}
-                    {isRegistering ? " · регистрация…" : ""}
-                    {isExporting ? " · экспорт…" : ""}
-                  </span>
-                </>
-              ) : backendAvailable === false ? (
-                <>
-                  <ServerCrash className="h-3.5 w-3.5" />
-                  <span title={backendError ?? undefined}>Модуль .mrxs недоступен. Запустите backend-сервис</span>
-                </>
-              ) : (
-                <span>Проверяем доступность backend…</span>
-              )}
+          {/* Backend status: show a compact strip only while backend work is in-flight.
+              Idle status (connected / demo / unavailable) lives in Import dialog and Settings. */}
+          {backendAvailable === true && (isUploading || isRegistering || isExporting) && (
+            <div className="flex items-center gap-2 px-3 py-1 text-xs border-b border-border bg-secondary/40 text-muted-foreground">
+              <ServerCog className="h-3.5 w-3.5" />
+              <span>
+                Backend{backendCaseId ? ` · case ${backendCaseId}` : ""}
+                {isUploading ? " · загрузка…" : ""}
+                {isRegistering ? " · регистрация…" : ""}
+                {isExporting ? " · экспорт…" : ""}
+              </span>
             </div>
           )}
           {section === "markers" && (
