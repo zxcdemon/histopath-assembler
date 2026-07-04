@@ -306,13 +306,13 @@ function Canvas({
             >
               <div className="relative">
                 <div
-                  className="aspect-[3/2] rounded-sm shadow-panel bg-white p-1.5"
+                  className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden"
                   style={{
-                    outline: isSel ? "2px solid var(--primary)" : "1px solid oklch(0 0 0 / 0.06)",
+                    outline: isSel ? "2px solid var(--primary)" : "none",
                     outlineOffset: isSel ? 2 : 0,
                   }}
                 >
-                  <FragmentImage fragment={f} className="w-full h-full rounded-[2px]" />
+                  <FragmentImage fragment={f} className="w-full h-full" />
                 </div>
                 {isSel && <SelectionHandles />}
                 <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground">
@@ -400,8 +400,8 @@ function BottomBar({
                 <button
                   key={f.id}
                   onClick={() => onSelect(f.id)}
-                  className={`snap-start shrink-0 w-28 md:w-32 rounded-lg border bg-background overflow-hidden transition-shadow ${
-                    isSel ? "border-primary ring-2 ring-primary/25" : "border-border hover:border-primary/40"
+                  className={`snap-start shrink-0 w-28 md:w-32 rounded-lg bg-background overflow-hidden transition-shadow ${
+                    isSel ? "ring-2 ring-primary/25" : "hover:ring-1 hover:ring-primary/20"
                   }`}
                 >
                   <div className="aspect-[3/2] bg-white">
