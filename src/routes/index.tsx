@@ -583,7 +583,23 @@ function Canvas({
                     className="w-full h-full pointer-events-none"
                     style={{ transform: p.flip ? "scaleX(-1)" : undefined }}
                   />
+                  {inkOn &&
+                    INK_MARKERS.map((m) => {
+                      const key = inkKey(f.id, m.label);
+                      if (!inkVisible[key]) return null;
+                      const level = inkLevels[key] ?? 0;
+                      if (level <= 0) return null;
+                      const thickness = 3 + (level / 100) * 12; // 3–15% of side
+                      const opacity = 0.35 + (level / 100) * 0.5;
+                      const side: React.CSSProperties = { position: "absolute", backgroundColor: m.color, opacity, pointerEvents: "none" };
+                      if (m.edge === "top") Object.assign(side, { top: 0, left: 0, right: 0, height: `${thickness}%` });
+                      if (m.edge === "bottom") Object.assign(side, { bottom: 0, left: 0, right: 0, height: `${thickness}%` });
+                      if (m.edge === "left") Object.assign(side, { top: 0, bottom: 0, left: 0, width: `${thickness}%` });
+                      if (m.edge === "right") Object.assign(side, { top: 0, bottom: 0, right: 0, width: `${thickness}%` });
+                      return <span key={m.label} style={side} />;
+                    })}
                 </div>
+
                 {isSel && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
