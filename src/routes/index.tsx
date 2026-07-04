@@ -1,5 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+
 
 import {
   Menu,
@@ -24,13 +32,13 @@ import {
   FlipHorizontal,
 
   ChevronUp,
-
-
+  EyeOff,
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
 import { MascotAssistant } from "@/components/MascotAssistant";
@@ -60,15 +68,18 @@ export const Route = createFileRoute("/")({
   component: Workspace,
 });
 
+
 const INK_MARKERS = [
-  { color: "oklch(0.20 0.02 260)", label: "Чёрный", count: 4 },
-  { color: "oklch(0.60 0.22 27)", label: "Красный", count: 4 },
-  { color: "oklch(0.58 0.20 260)", label: "Синий", count: 4 },
-  { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4 },
+  { color: "oklch(0.20 0.02 260)", label: "Чёрный", count: 4, edge: "top" as const },
+  { color: "oklch(0.60 0.22 27)", label: "Красный", count: 4, edge: "right" as const },
+  { color: "oklch(0.58 0.20 260)", label: "Синий", count: 4, edge: "bottom" as const },
+  { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4, edge: "left" as const },
 ];
 
 type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean };
 type InkLevels = Record<string, number>;
+type InkVisibility = Record<string, boolean>;
+export type InkMarker = (typeof INK_MARKERS)[number];
 
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
@@ -91,6 +102,38 @@ function Workspace() {
     );
     return init;
   });
+  const [inkVisible, setInkVisible] = useState<InkVisibility>(() => {
+    const init: InkVisibility = {};
+    FRAGMENTS.forEach((f) =>
+      INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = true)),
+    );
+    return init;
+  });
+
+  // Undo/redo history for placements.
+  const [history, setHistory] = useState<{ past: Record<string, Placement>[]; future: Record<string, Placement>[] }>({
+    past: [],
+    future: [],
+  });
+  const commitHistory = useCallback(() => {
+    setHistory((h) => ({ past: [...h.past, placements], future: [] }));
+  }, [placements]);
+  const undo = useCallback(() => {
+    setHistory((h) => {
+      if (!h.past.length) return h;
+      const prev = h.past[h.past.length - 1];
+      setPlacements(prev);
+      return { past: h.past.slice(0, -1), future: [placements, ...h.future] };
+    });
+  }, [placements]);
+  const redo = useCallback(() => {
+    setHistory((h) => {
+      if (!h.future.length) return h;
+      const next = h.future[0];
+      setPlacements(next);
+      return { past: [...h.past, placements], future: h.future.slice(1) };
+    });
+  }, [placements]);
 
   const updatePlacement = (id: string, patch: Partial<Placement>) =>
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -98,6 +141,7 @@ function Workspace() {
   const resetPlacement = (id: string) => {
     const src = FRAGMENTS.find((f) => f.id === id);
     if (src) {
+      commitHistory();
       setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
       toast("Трансформации сброшены", { description: `Фрагмент ${id}` });
     }
@@ -106,11 +150,45 @@ function Workspace() {
   const setInkLevel = (fid: string, label: string, value: number) =>
     setInkLevels((prev) => ({ ...prev, [inkKey(fid, label)]: value }));
 
+  const toggleInkVisible = (fid: string, label: string) =>
+    setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
+
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
     [selectedId],
   );
 
+  // Keyboard shortcuts: arrows nudge, R rotate, F flip, Esc deselect, Ctrl+Z/Y undo/redo.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (meta && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (!selected) return;
+      const step = e.shiftKey ? 5 : 1;
+      const p = placements[selected.id];
+      if (!p) return;
+      if (e.key === "ArrowLeft") { commitHistory(); updatePlacement(selected.id, { x: p.x - step }); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { commitHistory(); updatePlacement(selected.id, { x: p.x + step }); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { commitHistory(); updatePlacement(selected.id, { y: p.y - step }); e.preventDefault(); }
+      else if (e.key === "ArrowDown") { commitHistory(); updatePlacement(selected.id, { y: p.y + step }); e.preventDefault(); }
+      else if (e.key.toLowerCase() === "r") { commitHistory(); updatePlacement(selected.id, { rot: p.rot + (e.shiftKey ? -15 : 15) }); }
+      else if (e.key.toLowerCase() === "f") { commitHistory(); updatePlacement(selected.id, { flip: !p.flip }); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected, placements, commitHistory, undo, redo]);
 
   const handleSection = (id: string) => {
     setSection(id);
@@ -123,9 +201,16 @@ function Workspace() {
     if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
   };
 
+
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <TopBar onOpenNav={() => setNavOpen(true)} />
+      <TopBar
+        onOpenNav={() => setNavOpen(true)}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={history.past.length > 0}
+        canRedo={history.future.length > 0}
+      />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
         <NavRail active={section} onSelect={handleSection} />
@@ -148,7 +233,12 @@ function Workspace() {
             setZoom={setZoom}
             placements={placements}
             updatePlacement={updatePlacement}
+            commitHistory={commitHistory}
+            inkOn={inkOn}
+            inkLevels={inkLevels}
+            inkVisible={inkVisible}
           />
+
 
           {bottomOpen ? (
             <BottomBar
@@ -175,6 +265,8 @@ function Workspace() {
             resetPlacement={resetPlacement}
             inkLevels={inkLevels}
             setInkLevel={setInkLevel}
+            inkVisible={inkVisible}
+            toggleInkVisible={toggleInkVisible}
             mode={mode}
             setMode={setMode}
             inkOn={inkOn}
@@ -192,6 +284,8 @@ function Workspace() {
               resetPlacement={resetPlacement}
               inkLevels={inkLevels}
               setInkLevel={setInkLevel}
+              inkVisible={inkVisible}
+              toggleInkVisible={toggleInkVisible}
               mode={mode}
               setMode={setMode}
               inkOn={inkOn}
@@ -199,6 +293,7 @@ function Workspace() {
             />
           </SheetContent>
         </Sheet>
+
       </div>
 
 
@@ -217,7 +312,19 @@ function Workspace() {
   );
 }
 
-function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
+function TopBar({
+  onOpenNav,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+}: {
+  onOpenNav: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+}) {
   return (
     <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center gap-2 px-3 md:px-4">
       <button
@@ -234,19 +341,29 @@ function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
         <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
       </div>
       <div className="ml-auto flex items-center gap-1">
-        <IconBtn aria-label="Отменить"><Undo2 className="h-4 w-4" /></IconBtn>
-        <IconBtn aria-label="Повторить"><Redo2 className="h-4 w-4" /></IconBtn>
-        <Button className="ml-2 h-9 px-4">Сделать</Button>
+        <IconBtn aria-label="Отменить" onClick={onUndo} disabled={!canUndo}>
+          <Undo2 className="h-4 w-4" />
+        </IconBtn>
+        <IconBtn aria-label="Повторить" onClick={onRedo} disabled={!canRedo}>
+          <Redo2 className="h-4 w-4" />
+        </IconBtn>
+        <Button
+          className="ml-2 h-9 px-4"
+          onClick={() => toast("Сшивка запущена", { description: "Результат появится в разделе «Просмотр»." })}
+        >
+          Сделать
+        </Button>
       </div>
     </header>
   );
 }
 
+
 function IconBtn({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
-      className="h-9 w-9 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center"
+      className="h-9 w-9 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
     >
       {children}
     </button>
@@ -322,6 +439,10 @@ function Canvas({
   setZoom,
   placements,
   updatePlacement,
+  commitHistory,
+  inkOn,
+  inkLevels,
+  inkVisible,
 }: {
   selectedId: string;
   onSelect: (id: string) => void;
@@ -329,7 +450,12 @@ function Canvas({
   setZoom: (n: number) => void;
   placements: Record<string, Placement>;
   updatePlacement: (id: string, patch: Partial<Placement>) => void;
+  commitHistory: () => void;
+  inkOn: boolean;
+  inkLevels: InkLevels;
+  inkVisible: InkVisibility;
 }) {
+
   const layerRef = useRef<HTMLDivElement | null>(null);
 
   const startDrag = (id: string) => (e: ReactPointerEvent) => {
@@ -338,6 +464,8 @@ function Canvas({
     onSelect(id);
     const layer = layerRef.current;
     if (!layer) return;
+    commitHistory();
+
     const rect = layer.getBoundingClientRect();
     const start = placements[id];
     const startPx = { x: e.clientX, y: e.clientY };
@@ -364,6 +492,8 @@ function Canvas({
     e.preventDefault();
     const layer = layerRef.current;
     if (!layer) return;
+    commitHistory();
+
     const rect = layer.getBoundingClientRect();
     const start = placements[id];
     const startPx = { x: e.clientX, y: e.clientY };
@@ -388,7 +518,9 @@ function Canvas({
     e.preventDefault();
     const el = (e.currentTarget as HTMLElement).closest("[data-fragment]") as HTMLElement | null;
     if (!el) return;
+    commitHistory();
     const box = el.getBoundingClientRect();
+
     const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
@@ -451,7 +583,23 @@ function Canvas({
                     className="w-full h-full pointer-events-none"
                     style={{ transform: p.flip ? "scaleX(-1)" : undefined }}
                   />
+                  {inkOn &&
+                    INK_MARKERS.map((m) => {
+                      const key = inkKey(f.id, m.label);
+                      if (!inkVisible[key]) return null;
+                      const level = inkLevels[key] ?? 0;
+                      if (level <= 0) return null;
+                      const thickness = 3 + (level / 100) * 12; // 3–15% of side
+                      const opacity = 0.35 + (level / 100) * 0.5;
+                      const side: React.CSSProperties = { position: "absolute", backgroundColor: m.color, opacity, pointerEvents: "none" };
+                      if (m.edge === "top") Object.assign(side, { top: 0, left: 0, right: 0, height: `${thickness}%` });
+                      if (m.edge === "bottom") Object.assign(side, { bottom: 0, left: 0, right: 0, height: `${thickness}%` });
+                      if (m.edge === "left") Object.assign(side, { top: 0, bottom: 0, left: 0, width: `${thickness}%` });
+                      if (m.edge === "right") Object.assign(side, { top: 0, bottom: 0, right: 0, width: `${thickness}%` });
+                      return <span key={m.label} style={side} />;
+                    })}
                 </div>
+
                 {isSel && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
@@ -633,6 +781,8 @@ function FragmentParams({
   resetPlacement,
   inkLevels,
   setInkLevel,
+  inkVisible,
+  toggleInkVisible,
   mode,
   setMode,
   inkOn,
@@ -644,11 +794,14 @@ function FragmentParams({
   resetPlacement: (id: string) => void;
   inkLevels: InkLevels;
   setInkLevel: (fid: string, label: string, value: number) => void;
+  inkVisible: InkVisibility;
+  toggleInkVisible: (fid: string, label: string) => void;
   mode: "auto" | "semi" | "manual";
   setMode: (m: "auto" | "semi" | "manual") => void;
   inkOn: boolean;
   setInkOn: (b: boolean) => void;
 }) {
+
   // Convert placement (% of canvas) to a pseudo-micrometer value for display.
   const pctToMkm = (v: number) => Math.round(v * 100);
   const mkmToPct = (v: number) => v / 100;
@@ -750,7 +903,18 @@ function FragmentParams({
                   />
                 </div>
 
-                <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => toggleInkVisible(fragment.id, m.label)}
+                  aria-label={inkVisible[inkKey(fragment.id, m.label)] ? "Скрыть" : "Показать"}
+                  className="h-6 w-6 rounded hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  {inkVisible[inkKey(fragment.id, m.label)] ? (
+                    <Eye className="h-3.5 w-3.5" />
+                  ) : (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 <span className="text-xs w-8 text-right tabular-nums">{pct}</span>
               </li>
             );
