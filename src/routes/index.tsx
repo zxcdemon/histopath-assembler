@@ -1119,7 +1119,19 @@ function Workspace() {
         <SlidersHorizontal className="h-4 w-4" />
       </button>
 
-      <MascotAssistant onOpenHelp={() => setHelpOpen(true)} />
+      <MascotAssistant
+        onOpenHelp={() => setHelpOpen(true)}
+        fragmentCount={fragments.length}
+        hasMarkers={strokes.length + controlPoints.length > 0}
+        hasPending={!!pendingPlacements}
+        hasSuggestion={!!ghostPlacements}
+        onRunAuto={assistantRunAuto}
+        onApplyAuto={applyPending}
+        onRejectAuto={rejectPending}
+        onShowSuggestion={assistantShowSuggestion}
+        onApplySuggestion={assistantApplySuggestion}
+        onHideSuggestion={assistantHideSuggestion}
+      />
       <ImportDialog
         open={importOpen}
         onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
