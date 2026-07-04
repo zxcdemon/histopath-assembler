@@ -887,8 +887,8 @@ function Canvas({
             <div
               key={f.id}
               data-fragment={f.id}
-              onPointerDown={startDrag(f.id)}
-              className="absolute group touch-none select-none cursor-move"
+              onPointerDown={paintMode ? startPaint(f.id) : startDrag(f.id)}
+              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : "cursor-move"}`}
               style={{
                 left: `${p.x}%`,
                 top: `${p.y}%`,
@@ -900,7 +900,7 @@ function Canvas({
             >
               <div className="relative">
                 <div
-                  className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden"
+                  className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden relative"
                   style={{
                     outline: isSel ? "2px solid var(--primary)" : "none",
                     outlineOffset: isSel ? 2 : 0,
@@ -926,9 +926,47 @@ function Canvas({
                       if (m.edge === "right") Object.assign(side, { top: 0, bottom: 0, right: 0, width: `${thickness}%` });
                       return <span key={m.label} style={side} />;
                     })}
+
+                  {/* Painted marker strokes */}
+                  {fragStrokes.length > 0 && (
+                    <svg
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                    >
+                      {fragStrokes.map((s) => {
+                        const isMatch = matchedColors?.has(s.color);
+                        const pts = s.points.map((pt) => `${pt.x},${pt.y}`).join(" ");
+                        return (
+                          <g key={s.id}>
+                            {isMatch && (
+                              <polyline
+                                points={pts}
+                                stroke={s.color}
+                                strokeWidth={s.size + 3}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                fill="none"
+                                opacity={0.35}
+                              />
+                            )}
+                            <polyline
+                              points={pts}
+                              stroke={s.color}
+                              strokeWidth={s.size}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill="none"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
                 </div>
 
-                {isSel && (
+                {isSel && !paintMode && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
                     onRotate={startRotate(f.id)}
@@ -939,8 +977,14 @@ function Canvas({
                   />
                 )}
 
-                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none">
+                <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none flex items-center gap-1">
                   {f.label}
+                  {matchedColors && matchedColors.size > 0 && (
+                    <span className="inline-flex items-center gap-0.5 ml-1 text-primary" title="Есть совпадения по маркерам">
+                      <Link2 className="h-2.5 w-2.5" />
+                      {matchedColors.size}
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
