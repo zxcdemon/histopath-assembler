@@ -2102,6 +2102,170 @@ function BottomBar({
   );
 }
 
+type AssemblyMetrics = {
+  score: number;
+  matchCount: number;
+  errorCount: number;
+  warningCount: number;
+  totalFragments: number;
+  usedFragments: number;
+  matchRows: { id: string; a: string; b: string; kind: "ink" | "cp" | "seam"; detail: string; status: "good" | "check" | "approx" }[];
+  errors: { id: string; kind: "error" | "warning"; title: string }[];
+  warnings: { id: string; kind: "error" | "warning"; title: string }[];
+  statusText: string;
+  statusTone: "good" | "check" | "issues";
+};
+
+function AssemblyDetailsSheet({
+  open,
+  onOpenChange,
+  metrics,
+  warningsHidden,
+  onToggleWarnings,
+  onHighlightProblems,
+  onGoToRegistration,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  metrics: AssemblyMetrics;
+  warningsHidden: boolean;
+  onToggleWarnings: () => void;
+  onHighlightProblems: () => void;
+  onGoToRegistration: () => void;
+}) {
+  const statusColor =
+    metrics.statusTone === "issues" ? "text-destructive" : metrics.statusTone === "check" ? "text-amber-600" : "text-emerald-600";
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[380px] sm:w-[420px] p-0 flex flex-col">
+        <div className="px-5 pt-5 pb-3 border-b border-border">
+          <SheetTitle className="text-base font-semibold">Детали сборки</SheetTitle>
+          <div className={`mt-1 text-xs font-medium ${statusColor}`}>{metrics.statusText}</div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Overview */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Общий статус</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <Stat label="Качество" value={`${metrics.score}%`} />
+              <Stat label="Фрагменты" value={`${metrics.usedFragments} / ${metrics.totalFragments}`} />
+              <Stat label="Совпадения" value={String(metrics.matchCount)} />
+              <Stat label="Ошибки" value={String(metrics.errorCount)} tone={metrics.errorCount > 0 ? "error" : undefined} />
+              <Stat label="Предупреждения" value={String(metrics.warningCount)} tone={metrics.warningCount > 0 ? "warn" : undefined} />
+            </div>
+          </section>
+
+          {/* Matches */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Совпадения</div>
+            {metrics.matchRows.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Совпадений пока не найдено.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {metrics.matchRows.slice(0, 20).map((m) => (
+                  <li key={m.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate">
+                      <span className="font-medium">{m.a} ↔ {m.b}</span>{" "}
+                      <span className="text-muted-foreground">· {m.detail}</span>
+                    </span>
+                    <span
+                      className={
+                        m.status === "good"
+                          ? "text-emerald-600 shrink-0"
+                          : m.status === "check"
+                            ? "text-amber-600 shrink-0"
+                            : "text-muted-foreground shrink-0"
+                      }
+                    >
+                      {m.status === "good" ? "хорошо" : m.status === "check" ? "проверить" : "приблизительно"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Errors */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+              Ошибки{metrics.errorCount ? ` (${metrics.errorCount})` : ""}
+            </div>
+            {metrics.errors.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Ошибок нет.</div>
+            ) : (
+              <ul className="space-y-1">
+                {metrics.errors.map((e) => (
+                  <li key={e.id} className="text-xs flex gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                    <span>{e.title}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Warnings */}
+          {!warningsHidden && (
+            <section>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Предупреждения{metrics.warningCount ? ` (${metrics.warningCount})` : ""}
+              </div>
+              {metrics.warnings.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Предупреждений нет.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {metrics.warnings.map((w) => (
+                    <li key={w.id} className="text-xs flex gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span>{w.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+        </div>
+
+        <div className="border-t border-border px-5 py-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={onHighlightProblems} className="text-xs">
+            Показать проблемные места
+          </Button>
+          <Button size="sm" variant="outline" onClick={onGoToRegistration} className="text-xs">
+            Перейти к регистрации
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onToggleWarnings} className="text-xs">
+            {warningsHidden ? "Показать предупреждения" : "Скрыть предупреждения"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} className="text-xs ml-auto">
+            Закрыть
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "error" | "warn" }) {
+  return (
+    <div className="rounded-md border border-border bg-secondary/40 px-2.5 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div
+        className={
+          tone === "error"
+            ? "text-sm font-semibold text-destructive tabular-nums"
+            : tone === "warn"
+              ? "text-sm font-semibold text-amber-600 tabular-nums"
+              : "text-sm font-semibold tabular-nums"
+        }
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+
+
 function FragmentParams({
   fragment,
   placement,
