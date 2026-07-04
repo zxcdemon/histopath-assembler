@@ -22,18 +22,12 @@
 ## Быстрый старт (полный запуск)
 
 ```bash
-# 0. Проверка конфигов (опционально)
 docker compose config
+docker compose up --build
+curl http://localhost:8000/health
 python -m py_compile backend/main.py
 python -m py_compile backend/services/*.py
 
-# 1. Backend (Docker)
-docker compose up --build
-# 2. Проверка
-curl http://localhost:8000/health
-# → {"ok": true, "openslide": true, "version": "0.1.0"}
-
-# 3. Frontend
 cp .env.example .env         # VITE_BACKEND_URL=http://localhost:8000
 bun install
 bun run dev
@@ -121,8 +115,9 @@ uvicorn main:app --reload --port 8000
 - ✅ Preview + Export PNG.
 - ✅ OME-TIFF / BigTIFF экспорт через `tifffile` (tiled, JPEG).
 - ✅ Save/Load проекта в JSON.
-- ✅ Frontend: `backend-api.ts` клиент, автодетект доступности, честное
-  сообщение когда backend недоступен.
+- ✅ Frontend: `backend-api.ts` подключён к основному workspace; `.mrxs` не
+  импортируется как рабочий placeholder без backend, а при доступном backend
+  загружается на сервер и отображается через реальный thumbnail.
 
 ## Ограничения прототипа
 

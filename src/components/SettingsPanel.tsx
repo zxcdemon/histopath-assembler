@@ -17,7 +17,7 @@ type Quality = "low" | "medium" | "high";
 type RegMode = "auto" | "semi" | "manual";
 type RegPrecision = "fast" | "standard" | "high";
 type RegTransforms = "translate" | "trans_rot" | "trans_rot_scale";
-type ExportFormat = "ome-tiff" | "big-tiff";
+type ExportFormat = "png" | "ome-tiff" | "big-tiff";
 
 export type FragmentFileInfo = {
   id: string;
@@ -492,6 +492,7 @@ export function SettingsPanel({
                 value={draft.export.format}
                 onChange={(v) => patch("export", { format: v })}
                 options={[
+                  { id: "png", label: "PNG" },
                   { id: "ome-tiff", label: "OME-TIFF" },
                   { id: "big-tiff", label: "BigTIFF" },
                 ]}
