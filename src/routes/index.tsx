@@ -179,6 +179,130 @@ function Workspace() {
   const toggleInkVisible = (fid: string, label: string) =>
     setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
 
+  // ============= Painted markers (brush) =============
+  const [strokes, setStrokes] = useState<MarkerStroke[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(MARKERS_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as MarkerStroke[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [strokePast, setStrokePast] = useState<MarkerStroke[][]>([]);
+  const [brushColor, setBrushColor] = useState<string>(MARKER_PALETTE[1]);
+  const [brushSize, setBrushSize] = useState<number>(3);
+  const [brushTool, setBrushTool] = useState<MarkerTool>("brush");
+  const paintMode = section === "markers";
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(strokes));
+    } catch {
+      /* quota / disabled */
+    }
+  }, [strokes]);
+
+  const snapshotStrokes = useCallback(() => {
+    setStrokePast((h) => [...h.slice(-49), strokes]);
+  }, [strokes]);
+  const undoStroke = useCallback(() => {
+    setStrokePast((h) => {
+      if (!h.length) return h;
+      setStrokes(h[h.length - 1]);
+      return h.slice(0, -1);
+    });
+  }, []);
+  const clearFragmentStrokes = useCallback(
+    (fid: string) => {
+      snapshotStrokes();
+      setStrokes((s) => s.filter((x) => x.fragmentId !== fid));
+      toast("Маркеры фрагмента удалены", { description: fid });
+    },
+    [snapshotStrokes],
+  );
+  const addStroke = useCallback((s: MarkerStroke) => {
+    setStrokes((prev) => [...prev, s]);
+  }, []);
+  const updateStrokePoints = useCallback((id: string, points: MarkerPoint[]) => {
+    setStrokes((prev) => prev.map((s) => (s.id === id ? { ...s, points: [...points] } : s)));
+  }, []);
+  const eraseNear = useCallback((fid: string, x: number, y: number, radius: number) => {
+    setStrokes((prev) =>
+      prev.filter((st) => {
+        if (st.fragmentId !== fid) return true;
+        return !st.points.some((p) => Math.hypot(p.x - x, p.y - y) < radius);
+      }),
+    );
+  }, []);
+
+  // Matches between fragments: shared marker colors → possible neighbours.
+  const matches = useMemo(() => {
+    const byFrag = new Map<string, Set<string>>();
+    strokes.forEach((s) => {
+      if (!byFrag.has(s.fragmentId)) byFrag.set(s.fragmentId, new Set());
+      byFrag.get(s.fragmentId)!.add(s.color);
+    });
+    const ids = [...byFrag.keys()];
+    const pairs: { a: string; b: string; colors: string[] }[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = byFrag.get(ids[i])!;
+        const b = byFrag.get(ids[j])!;
+        const common = [...a].filter((c) => b.has(c));
+        if (common.length) pairs.push({ a: ids[i], b: ids[j], colors: common });
+      }
+    }
+    return pairs;
+  }, [strokes]);
+  const matchedColorsByFragment = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    matches.forEach(({ a, b, colors }) => {
+      if (!m.has(a)) m.set(a, new Set());
+      if (!m.has(b)) m.set(b, new Set());
+      colors.forEach((c) => {
+        m.get(a)!.add(c);
+        m.get(b)!.add(c);
+      });
+    });
+    return m;
+  }, [matches]);
+
+  const exportMarkers = useCallback(() => {
+    const payload = {
+      caseId: CASE_ID,
+      exportedAt: new Date().toISOString(),
+      fragments: fragments.map((f) => ({
+        id: f.id,
+        label: f.label,
+        placement: placements[f.id],
+        strokes: strokes
+          .filter((s) => s.fragmentId === f.id)
+          .map((s) => ({ id: s.id, color: s.color, size: s.size, points: s.points })),
+        neighbours: matches
+          .filter((m) => m.a === f.id || m.b === f.id)
+          .map((m) => ({
+            fragmentId: m.a === f.id ? m.b : m.a,
+            sharedColors: m.colors,
+          })),
+      })),
+    };
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${CASE_ID}-markers.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Маркеры экспортированы", { description: `${payload.fragments.length} фрагмент(ов)` });
+    } catch {
+      toast("Не удалось экспортировать маркеры");
+    }
+  }, [fragments, placements, strokes, matches]);
+
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
     setPlacements((prev) => {
