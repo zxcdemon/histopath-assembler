@@ -518,7 +518,9 @@ function Canvas({
     e.preventDefault();
     const el = (e.currentTarget as HTMLElement).closest("[data-fragment]") as HTMLElement | null;
     if (!el) return;
+    commitHistory();
     const box = el.getBoundingClientRect();
+
     const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
