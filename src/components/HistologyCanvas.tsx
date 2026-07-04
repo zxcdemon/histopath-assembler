@@ -21,12 +21,13 @@ export const FRAGMENTS: Fragment[] = [
 export function FragmentImage({
   fragment,
   className = "",
+  style,
 }: {
   fragment: Fragment;
   className?: string;
+  style?: React.CSSProperties;
 }) {
   const { crop } = fragment;
-  // Use background-image cropping to show a region of the source histology.
   const bgSizeX = 100 / (crop.w / 100);
   const bgSizeY = 100 / (crop.h / 100);
   const bgPosX = crop.w >= 100 ? 0 : (crop.x / (100 - crop.w)) * 100;
@@ -41,7 +42,9 @@ export function FragmentImage({
         backgroundSize: `${bgSizeX}% ${bgSizeY}%`,
         backgroundPosition: `${bgPosX}% ${bgPosY}%`,
         backgroundRepeat: "no-repeat",
+        ...style,
       }}
     />
   );
 }
+
