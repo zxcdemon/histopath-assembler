@@ -885,6 +885,7 @@ function Workspace() {
               addControlPoint={addControlPoint}
               removeControlPoint={removeControlPoint}
               pendingPlacements={pendingPlacements}
+              ghostPlacements={ghostPlacements}
             />
           )}
 
