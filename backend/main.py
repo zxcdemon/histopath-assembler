@@ -184,16 +184,20 @@ async def upload_fragment(case_id: str, file: UploadFile = File(...)):
     dest.mkdir(parents=True, exist_ok=True)
     file_path = dest / (file.filename or "upload.bin")
 
-    # Stream to disk (WSIs are large).
-    with file_path.open("wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
+    await _stream_upload_to_path(file, file_path)
 
     try:
         meta = wsi.probe(file_path)
     except WSIUnavailable as e:
-        # Non-WSI file — still store as raw image if Pillow can open it.
-        meta = wsi.probe_raster(file_path, reason=str(e))
+        if _is_wsi_name(file.filename):
+            shutil.rmtree(dest, ignore_errors=True)
+            raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}") from e
+
+        try:
+            meta = wsi.probe_raster(file_path, reason=str(e))
+        except Exception as raster_error:  # noqa: BLE001
+            shutil.rmtree(dest, ignore_errors=True)
+            raise HTTPException(415, f"Файл не поддерживается: {raster_error}") from raster_error
 
     # Precompute thumbnail
     try:
@@ -227,11 +231,8 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     dest = storage.fragment_dir(case_id, fragment_id)
     dest.mkdir(parents=True, exist_ok=True)
 
-    # Save the archive itself to a temp location, then extract into `dest`.
     tmp_zip = dest / (file.filename or "upload.zip")
-    with tmp_zip.open("wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
+    await _stream_upload_to_path(file, tmp_zip)
 
     if not zipfile.is_zipfile(tmp_zip):
         shutil.rmtree(dest, ignore_errors=True)
@@ -261,7 +262,8 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     try:
         meta = wsi.probe(file_path)
     except WSIUnavailable as e:
-        raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}")
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}") from e
 
     try:
         thumb_path = dest / "thumb.jpg"
@@ -273,7 +275,7 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     frag = {
         "id": fragment_id,
         "caseId": case_id,
-        "fileName": file.filename,
+        "fileName": file_path.name,
         "path": str(file_path),
         **meta,
     }
