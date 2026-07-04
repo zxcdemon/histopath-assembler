@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import mascotHero from "@/assets/mascot-hero.png";
 
-export function MascotAssistant() {
+export function MascotAssistant({ onOpenHelp }: { onOpenHelp?: () => void } = {}) {
   const [open, setOpen] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -15,6 +15,15 @@ export function MascotAssistant() {
     });
     setTimeout(() => setStatus(null), 3500);
   };
+
+  const handleHelp = () => {
+    if (onOpenHelp) onOpenHelp();
+    else
+      toast("Раздел «Помощь»", {
+        description: "Откройте «Помощь» в левом меню для встроенной справки.",
+      });
+  };
+
 
   const handleSuggest = () => {
     setStatus(null);
@@ -59,23 +68,28 @@ export function MascotAssistant() {
           {status ? (
             <div className="mt-2 text-sm text-muted-foreground">{status}</div>
           ) : (
-            <div className="mt-3.5 flex gap-2">
+            <div className="mt-3.5 flex flex-wrap gap-2">
               <Button onClick={handleAuto} className="h-9 px-4 text-sm">
                 Сделай сам
               </Button>
               <Button variant="outline" onClick={handleSuggest} className="h-9 px-4 text-sm">
                 Предложи
               </Button>
+              <Button variant="ghost" onClick={handleHelp} className="h-9 px-3 text-sm">
+                Помощь
+              </Button>
             </div>
           )}
+
         </div>
 
         {/* Mascot overflows to the right and top of the card */}
         <button
-          onClick={handleAuto}
-          aria-label="Спросить помощника"
+          onClick={handleHelp}
+          aria-label="Открыть помощь"
           className="absolute right-2 md:right-3 bottom-0 hover:scale-[1.03] transition-transform origin-bottom"
         >
+
           <img
             src={mascotHero}
             alt="Помощник"
