@@ -38,7 +38,12 @@ import {
   Trash2,
   Download,
   Link2,
+  Layers,
+  AlertTriangle,
+  CheckCircle2,
+  SplitSquareHorizontal,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -168,6 +173,87 @@ function computeSimilarity(
 }
 
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
+
+// ============= Preview / seam analysis =============
+export type PreviewLayers = {
+  fragments: boolean;
+  borders: boolean;
+  ink: boolean;
+  cps: boolean;
+  seams: boolean;
+  overlaps: boolean;
+  warnings: boolean;
+};
+export type PreviewCompare = "current" | "initial" | "registered";
+export type SeamKind = "good" | "gap" | "overlap" | "rotation";
+export type Seam = {
+  id: string;
+  a: string;
+  b: string;
+  kind: SeamKind;
+  overlap: number; // % of smaller box
+  gap: number; // % distance edge-to-edge
+  rotDiff: number; // degrees
+  cx: number; // seam label position (canvas %)
+  cy: number;
+};
+
+// Axis-aligned bounding box of a rotated 3:2 fragment placement.
+function placementAABB(p: Placement) {
+  const w = p.w;
+  const h = p.w * (2 / 3);
+  const cx = p.x + w / 2;
+  const cy = p.y + h / 2;
+  const rad = (p.rot * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const bw = w * cos + h * sin;
+  const bh = w * sin + h * cos;
+  return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh, cx, cy };
+}
+
+function computeSeams(fragments: Fragment[], placements: Record<string, Placement>): Seam[] {
+  const seams: Seam[] = [];
+  const boxes = fragments.map((f) => ({ id: f.id, box: placementAABB(placements[f.id]), rot: placements[f.id].rot }));
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const A = boxes[i], B = boxes[j];
+      const ix = Math.max(0, Math.min(A.box.x + A.box.w, B.box.x + B.box.w) - Math.max(A.box.x, B.box.x));
+      const iy = Math.max(0, Math.min(A.box.y + A.box.h, B.box.y + B.box.h) - Math.max(A.box.y, B.box.y));
+      const inter = ix * iy;
+      const smaller = Math.min(A.box.w * A.box.h, B.box.w * B.box.h) || 1;
+      const overlap = (inter / smaller) * 100;
+      const dx = Math.max(0, Math.max(A.box.x - (B.box.x + B.box.w), B.box.x - (A.box.x + A.box.w)));
+      const dy = Math.max(0, Math.max(A.box.y - (B.box.y + B.box.h), B.box.y - (A.box.y + A.box.h)));
+      const gap = Math.hypot(dx, dy);
+      const rotDiff = Math.abs(((A.rot - B.rot + 540) % 360) - 180);
+      // Only surface pairs that are actually near / touching.
+      if (overlap === 0 && gap > 8) continue;
+      let kind: SeamKind = "good";
+      if (overlap > 12) kind = "overlap";
+      else if (gap > 2.5) kind = "gap";
+      else if (rotDiff > 20) kind = "rotation";
+      const cx = (A.box.cx + B.box.cx) / 2;
+      const cy = (A.box.cy + B.box.cy) / 2;
+      seams.push({ id: `${A.id}-${B.id}`, a: A.id, b: B.id, kind, overlap, gap, rotDiff, cx, cy });
+    }
+  }
+  return seams;
+}
+
+const SEAM_COLOR: Record<SeamKind, string> = {
+  good: "#22c55e",
+  gap: "#eab308",
+  overlap: "#ef4444",
+  rotation: "#f97316",
+};
+const SEAM_LABEL: Record<SeamKind, string> = {
+  good: "Хороший стык",
+  gap: "Зазор",
+  overlap: "Наложение",
+  rotation: "Сильный поворот",
+};
+
 
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
@@ -372,6 +458,56 @@ function Workspace() {
   const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
   const [regResidual, setRegResidual] = useState<number | null>(null);
   const registrationMode = section === "registration";
+  const previewMode = section === "preview";
+
+  // ============= Preview state =============
+  const [previewLayers, setPreviewLayers] = useState<PreviewLayers>({
+    fragments: true, borders: true, ink: true, cps: false,
+    seams: true, overlaps: true, warnings: true,
+  });
+  const [previewCompare, setPreviewCompare] = useState<PreviewCompare>("current");
+  const [previewSelected, setPreviewSelected] = useState<
+    { type: "fragment"; id: string } | { type: "seam"; id: string } | null
+  >(null);
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const initialPlacements = useMemo(
+    () => Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])) as Record<string, Placement>,
+    [],
+  );
+  const registeredPlacements = pendingPlacements ?? placements;
+  const previewPlacements =
+    previewCompare === "initial" ? initialPlacements :
+    previewCompare === "registered" ? registeredPlacements :
+    placements;
+  const seams = useMemo(
+    () => computeSeams(fragments, previewPlacements),
+    [fragments, previewPlacements],
+  );
+  const previewStatus = useMemo(() => {
+    const bad = seams.filter((s) => s.kind !== "good");
+    const unregistered = fragments.filter((f) => !previewPlacements[f.id]).length;
+    const notes: string[] = [];
+    if (unregistered) notes.push(`Не размещены: ${unregistered}`);
+    if (bad.length) notes.push(`Проблемные стыки: ${bad.length}`);
+    if (pendingPlacements) notes.push("Есть несохранённая регистрация");
+    let level: "ready" | "check" | "issues" = "ready";
+    if (bad.some((s) => s.kind === "overlap") || unregistered) level = "issues";
+    else if (bad.length || pendingPlacements) level = "check";
+    return { level, notes, badCount: bad.length, unregistered };
+  }, [seams, fragments, previewPlacements, pendingPlacements]);
+  const exportComposite = useCallback(() => {
+    const problems: string[] = [];
+    if (previewStatus.unregistered) problems.push(`незарегистрированных фрагментов: ${previewStatus.unregistered}`);
+    if (pendingPlacements) problems.push("неподтверждённая регистрация");
+    if (previewStatus.badCount) problems.push(`проблемных стыков: ${previewStatus.badCount}`);
+    if (problems.length) {
+      toast("Экспорт с предупреждениями", { description: problems.join(" · ") });
+    } else {
+      toast("Готово к экспорту", { description: "Гистотопограмма собрана без нареканий." });
+    }
+  }, [previewStatus, pendingPlacements]);
+
 
   const addControlPoint = useCallback(
     (fid: string, x: number, y: number) => {
@@ -636,36 +772,58 @@ function Workspace() {
         </Sheet>
 
         <main className="flex-1 flex flex-col min-w-0 relative">
-          <Canvas
-            fragments={fragments}
-            selectedId={selected.id}
-            onSelect={setSelectedId}
-            zoom={zoom}
-            setZoom={setZoom}
-            placements={placements}
-            updatePlacement={updatePlacement}
-            commitHistory={commitHistory}
-            inkOn={inkOn}
-            inkLevels={inkLevels}
-            inkVisible={inkVisible}
-            paintMode={paintMode}
-            strokes={strokes}
-            brushColor={brushColor}
-            brushSize={brushSize}
-            brushTool={brushTool}
-            addStroke={addStroke}
-            updateStrokePoints={updateStrokePoints}
-            eraseNear={eraseNear}
-            snapshotStrokes={snapshotStrokes}
-            matchedColorsByFragment={matchedColorsByFragment}
-            registrationMode={registrationMode}
-            regMode={mode}
-            regPair={regPair}
-            controlPoints={controlPoints}
-            addControlPoint={addControlPoint}
-            removeControlPoint={removeControlPoint}
-            pendingPlacements={pendingPlacements}
-          />
+          {previewMode ? (
+            <PreviewView
+              fragments={fragments}
+              placements={previewPlacements}
+              inkLevels={inkLevels}
+              inkVisible={inkVisible}
+              strokes={strokes}
+              controlPoints={controlPoints}
+              seams={seams}
+              layers={previewLayers}
+              compare={previewCompare}
+              zoom={previewZoom}
+              setZoom={setPreviewZoom}
+              pan={previewPan}
+              setPan={setPreviewPan}
+              selected={previewSelected}
+              onSelect={setPreviewSelected}
+              status={previewStatus}
+              onExport={exportComposite}
+            />
+          ) : (
+            <Canvas
+              fragments={fragments}
+              selectedId={selected.id}
+              onSelect={setSelectedId}
+              zoom={zoom}
+              setZoom={setZoom}
+              placements={placements}
+              updatePlacement={updatePlacement}
+              commitHistory={commitHistory}
+              inkOn={inkOn}
+              inkLevels={inkLevels}
+              inkVisible={inkVisible}
+              paintMode={paintMode}
+              strokes={strokes}
+              brushColor={brushColor}
+              brushSize={brushSize}
+              brushTool={brushTool}
+              addStroke={addStroke}
+              updateStrokePoints={updateStrokePoints}
+              eraseNear={eraseNear}
+              snapshotStrokes={snapshotStrokes}
+              matchedColorsByFragment={matchedColorsByFragment}
+              registrationMode={registrationMode}
+              regMode={mode}
+              regPair={regPair}
+              controlPoints={controlPoints}
+              addControlPoint={addControlPoint}
+              removeControlPoint={removeControlPoint}
+              pendingPlacements={pendingPlacements}
+            />
+          )}
 
 
           {bottomOpen ? (
@@ -685,6 +843,7 @@ function Workspace() {
           )}
 
         </main>
+
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
@@ -724,20 +883,40 @@ function Workspace() {
               matches={matches}
             />
           )}
-          <FragmentParams
-            fragment={selected}
-            placement={placements[selected.id]}
-            updatePlacement={updatePlacement}
-            resetPlacement={resetPlacement}
-            inkLevels={inkLevels}
-            setInkLevel={setInkLevel}
-            inkVisible={inkVisible}
-            toggleInkVisible={toggleInkVisible}
-            mode={mode}
-            setMode={setMode}
-            inkOn={inkOn}
-            setInkOn={setInkOn}
-          />
+          {previewMode ? (
+            <PreviewPanel
+              fragments={fragments}
+              placements={previewPlacements}
+              initialPlacements={initialPlacements}
+              strokes={strokes}
+              seams={seams}
+              layers={previewLayers}
+              setLayers={setPreviewLayers}
+              compare={previewCompare}
+              setCompare={setPreviewCompare}
+              selected={previewSelected}
+              onSelect={setPreviewSelected}
+              status={previewStatus}
+              onExport={exportComposite}
+              hasPending={!!pendingPlacements}
+            />
+          ) : (
+            <FragmentParams
+              fragment={selected}
+              placement={placements[selected.id]}
+              updatePlacement={updatePlacement}
+              resetPlacement={resetPlacement}
+              inkLevels={inkLevels}
+              setInkLevel={setInkLevel}
+              inkVisible={inkVisible}
+              toggleInkVisible={toggleInkVisible}
+              mode={mode}
+              setMode={setMode}
+              inkOn={inkOn}
+              setInkOn={setInkOn}
+            />
+          )}
+
         </aside>
         {/* Mobile params drawer */}
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
@@ -779,20 +958,40 @@ function Workspace() {
                 matches={matches}
               />
             )}
-            <FragmentParams
-              fragment={selected}
-              placement={placements[selected.id]}
-              updatePlacement={updatePlacement}
-              resetPlacement={resetPlacement}
-              inkLevels={inkLevels}
-              setInkLevel={setInkLevel}
-              inkVisible={inkVisible}
-              toggleInkVisible={toggleInkVisible}
-              mode={mode}
-              setMode={setMode}
-              inkOn={inkOn}
-              setInkOn={setInkOn}
-            />
+            {previewMode ? (
+              <PreviewPanel
+                fragments={fragments}
+                placements={previewPlacements}
+                initialPlacements={initialPlacements}
+                strokes={strokes}
+                seams={seams}
+                layers={previewLayers}
+                setLayers={setPreviewLayers}
+                compare={previewCompare}
+                setCompare={setPreviewCompare}
+                selected={previewSelected}
+                onSelect={setPreviewSelected}
+                status={previewStatus}
+                onExport={exportComposite}
+                hasPending={!!pendingPlacements}
+              />
+            ) : (
+              <FragmentParams
+                fragment={selected}
+                placement={placements[selected.id]}
+                updatePlacement={updatePlacement}
+                resetPlacement={resetPlacement}
+                inkLevels={inkLevels}
+                setInkLevel={setInkLevel}
+                inkVisible={inkVisible}
+                toggleInkVisible={toggleInkVisible}
+                mode={mode}
+                setMode={setMode}
+                inkOn={inkOn}
+                setInkOn={setInkOn}
+              />
+            )}
+
           </SheetContent>
         </Sheet>
 
@@ -2155,3 +2354,456 @@ function RegistrationPanel({
 
 
 
+
+// ============= Preview view (assembled histotopogram) =============
+type PreviewStatus = {
+  level: "ready" | "check" | "issues";
+  notes: string[];
+  badCount: number;
+  unregistered: number;
+};
+
+function PreviewView({
+  fragments, placements, inkLevels, inkVisible, strokes, controlPoints, seams,
+  layers, compare, zoom, setZoom, pan, setPan, selected, onSelect, status,
+}: {
+  fragments: Fragment[];
+  placements: Record<string, Placement>;
+  inkLevels: InkLevels;
+  inkVisible: InkVisibility;
+  strokes: MarkerStroke[];
+  controlPoints: ControlPoint[];
+  seams: Seam[];
+  layers: PreviewLayers;
+  compare: PreviewCompare;
+  zoom: number;
+  setZoom: (n: number) => void;
+  pan: { x: number; y: number };
+  setPan: (p: { x: number; y: number }) => void;
+  selected: { type: "fragment"; id: string } | { type: "seam"; id: string } | null;
+  onSelect: (s: { type: "fragment"; id: string } | { type: "seam"; id: string } | null) => void;
+  status: PreviewStatus;
+  onExport: () => void;
+}) {
+  const startPan = (e: ReactPointerEvent) => {
+    if ((e.target as HTMLElement).closest("[data-frag-hit], [data-seam-hit]")) return;
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+    const move = (ev: PointerEvent) => {
+      setPan({ x: start.px + (ev.clientX - start.x), y: start.py + (ev.clientY - start.y) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const next = Math.max(20, Math.min(400, zoom + (e.deltaY < 0 ? 10 : -10)));
+    setZoom(next);
+  };
+
+  const statusStyle: Record<PreviewStatus["level"], string> = {
+    ready: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30",
+    check: "text-amber-600 bg-amber-500/10 border-amber-500/30",
+    issues: "text-red-600 bg-red-500/10 border-red-500/30",
+  };
+  const statusLabel: Record<PreviewStatus["level"], string> = {
+    ready: "Готово к экспорту",
+    check: "Требуется проверка",
+    issues: "Есть проблемные стыки",
+  };
+  const compareLabel: Record<PreviewCompare, string> = {
+    current: "Текущая сборка",
+    initial: "Исходные фрагменты",
+    registered: "После регистрации",
+  };
+
+  return (
+    <div className="relative flex-1 min-h-0 bg-canvas overflow-hidden">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 max-w-[95vw] flex-wrap justify-center">
+        <div className={`rounded-full border px-3 py-1 text-[11px] font-medium flex items-center gap-1.5 ${statusStyle[status.level]}`}>
+          {status.level === "ready" ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+          {statusLabel[status.level]}
+        </div>
+        <div className="rounded-full bg-panel border border-border shadow-panel px-3 py-1 text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+          <SplitSquareHorizontal className="h-3 w-3 text-primary" /> {compareLabel[compare]}
+        </div>
+      </div>
+
+      <div
+        onPointerDown={startPan}
+        onWheel={onWheel}
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest("[data-frag-hit], [data-seam-hit]")) onSelect(null);
+        }}
+        className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
+      >
+        <div
+          className="absolute left-1/2 top-1/2"
+          style={{
+            width: "80%",
+            aspectRatio: "3 / 2",
+            transform: `translate(-50%,-50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`,
+            transformOrigin: "center center",
+          }}
+        >
+          <div className="absolute inset-0 rounded-md border border-dashed border-border/60 bg-background/40" />
+
+          {layers.fragments && fragments.map((f) => {
+            const p = placements[f.id];
+            if (!p) return null;
+            const isSel = selected?.type === "fragment" && selected.id === f.id;
+            return (
+              <div
+                key={f.id}
+                data-frag-hit
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onSelect({ type: "fragment", id: f.id }); }}
+                className="absolute cursor-pointer"
+                style={{
+                  left: `${p.x}%`, top: `${p.y}%`, width: `${p.w}%`,
+                  transform: `rotate(${p.rot}deg)`, transformOrigin: "center",
+                }}
+              >
+                <div
+                  className="aspect-[3/2] rounded-sm overflow-hidden relative shadow-panel"
+                  style={{
+                    outline: isSel
+                      ? "2px solid var(--primary)"
+                      : layers.borders
+                        ? "1px solid color-mix(in oklch, var(--foreground) 20%, transparent)"
+                        : "none",
+                    outlineOffset: isSel ? 2 : 0,
+                  }}
+                >
+                  <FragmentImage
+                    fragment={f}
+                    className="w-full h-full pointer-events-none"
+                    style={{ transform: p.flip ? "scaleX(-1)" : undefined }}
+                  />
+                  {layers.ink && INK_MARKERS.map((m) => {
+                    const key = inkKey(f.id, m.label);
+                    if (!inkVisible[key]) return null;
+                    const level = inkLevels[key] ?? 0;
+                    if (level <= 0) return null;
+                    const thickness = 3 + (level / 100) * 12;
+                    const opacity = 0.35 + (level / 100) * 0.5;
+                    const side: React.CSSProperties = { position: "absolute", backgroundColor: m.color, opacity, pointerEvents: "none" };
+                    if (m.edge === "top") Object.assign(side, { top: 0, left: 0, right: 0, height: `${thickness}%` });
+                    if (m.edge === "bottom") Object.assign(side, { bottom: 0, left: 0, right: 0, height: `${thickness}%` });
+                    if (m.edge === "left") Object.assign(side, { top: 0, bottom: 0, left: 0, width: `${thickness}%` });
+                    if (m.edge === "right") Object.assign(side, { top: 0, bottom: 0, right: 0, width: `${thickness}%` });
+                    return <span key={m.label} style={side} />;
+                  })}
+                  {strokes.filter((s) => s.fragmentId === f.id).length > 0 && (
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      {strokes.filter((s) => s.fragmentId === f.id).map((s) => (
+                        <polyline
+                          key={s.id}
+                          points={s.points.map((pt) => `${pt.x},${pt.y}`).join(" ")}
+                          stroke={s.color}
+                          strokeWidth={s.size}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          fill="none"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      ))}
+                    </svg>
+                  )}
+                  {layers.cps && (
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      {controlPoints.filter((cp) => cp.fragmentId === f.id).map((cp) => (
+                        <circle key={cp.id} cx={cp.x} cy={cp.y} r={2} fill={cpColor(cp.pairId)} stroke="#fff" strokeWidth={0.5} vectorEffect="non-scaling-stroke" />
+                      ))}
+                    </svg>
+                  )}
+                </div>
+                <span className="absolute -bottom-4 left-0 text-[10px] px-1 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none">
+                  {f.label}
+                </span>
+              </div>
+            );
+          })}
+
+          {layers.seams && (
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+              {seams.map((s) => {
+                if (!layers.overlaps && s.kind === "overlap") return null;
+                if (!layers.warnings && (s.kind === "gap" || s.kind === "rotation")) return null;
+                const isSel = selected?.type === "seam" && selected.id === s.id;
+                return (
+                  <circle
+                    key={s.id}
+                    cx={s.cx}
+                    cy={s.cy}
+                    r={isSel ? 2.2 : 1.6}
+                    fill={SEAM_COLOR[s.kind]}
+                    stroke="#fff"
+                    strokeWidth={0.4}
+                    vectorEffect="non-scaling-stroke"
+                    opacity={0.9}
+                  />
+                );
+              })}
+            </svg>
+          )}
+          {layers.seams && seams.map((s) => {
+            if (!layers.overlaps && s.kind === "overlap") return null;
+            if (!layers.warnings && (s.kind === "gap" || s.kind === "rotation")) return null;
+            return (
+              <button
+                type="button"
+                key={`hit-${s.id}`}
+                data-seam-hit
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onSelect({ type: "seam", id: s.id }); }}
+                title={`${SEAM_LABEL[s.kind]}: ${s.a} ↔ ${s.b}`}
+                className="absolute rounded-full"
+                style={{
+                  left: `${s.cx}%`, top: `${s.cy}%`,
+                  width: 18, height: 18, marginLeft: -9, marginTop: -9,
+                  background: "transparent",
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="absolute left-3 bottom-3 md:left-4 md:bottom-4 flex items-center gap-1 rounded-lg bg-panel border border-border shadow-panel px-1.5 py-1">
+        <IconBtn onClick={() => setZoom(Math.max(20, zoom - 10))} aria-label="Уменьшить"><Minus className="h-4 w-4" /></IconBtn>
+        <span className="text-xs font-medium w-10 text-center tabular-nums">{zoom}%</span>
+        <IconBtn onClick={() => setZoom(Math.min(400, zoom + 10))} aria-label="Увеличить"><Plus className="h-4 w-4" /></IconBtn>
+        <div className="w-px h-5 bg-border mx-1" />
+        <IconBtn onClick={() => { setZoom(100); setPan({ x: 0, y: 0 }); }} aria-label="По размеру"><Maximize2 className="h-4 w-4" /></IconBtn>
+      </div>
+
+      <div className="absolute right-3 bottom-3 md:right-4 md:bottom-4 w-40 rounded-lg bg-panel border border-border shadow-panel p-1.5 pointer-events-none">
+        <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1">
+          <LayoutGrid className="h-3 w-3" /> Мини-карта
+        </div>
+        <div className="relative w-full aspect-[3/2] bg-background rounded border border-border overflow-hidden">
+          {fragments.map((f) => {
+            const p = placements[f.id];
+            if (!p) return null;
+            return (
+              <div
+                key={f.id}
+                className="absolute bg-primary/40 border border-primary/60"
+                style={{
+                  left: `${Math.max(0, p.x)}%`, top: `${Math.max(0, p.y)}%`,
+                  width: `${Math.min(100, p.w)}%`,
+                  aspectRatio: "3/2",
+                  transform: `rotate(${p.rot}deg)`, transformOrigin: "top left",
+                }}
+              />
+            );
+          })}
+          <div
+            className="absolute border-2 border-foreground/60"
+            style={{
+              inset: `${Math.max(0, 50 - 5000 / zoom)}% ${Math.max(0, 50 - 5000 / zoom)}%`,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewPanel({
+  fragments, placements, initialPlacements, strokes, seams,
+  layers, setLayers, compare, setCompare, selected, onSelect, status, onExport, hasPending,
+}: {
+  fragments: Fragment[];
+  placements: Record<string, Placement>;
+  initialPlacements: Record<string, Placement>;
+  strokes: MarkerStroke[];
+  seams: Seam[];
+  layers: PreviewLayers;
+  setLayers: React.Dispatch<React.SetStateAction<PreviewLayers>>;
+  compare: PreviewCompare;
+  setCompare: (c: PreviewCompare) => void;
+  selected: { type: "fragment"; id: string } | { type: "seam"; id: string } | null;
+  onSelect: (s: { type: "fragment"; id: string } | { type: "seam"; id: string } | null) => void;
+  status: PreviewStatus;
+  onExport: () => void;
+  hasPending: boolean;
+}) {
+  const toggle = (k: keyof PreviewLayers) => setLayers((p) => ({ ...p, [k]: !p[k] }));
+  const layerRows: { key: keyof PreviewLayers; label: string }[] = [
+    { key: "fragments", label: "Исходные фрагменты" },
+    { key: "borders", label: "Границы фрагментов" },
+    { key: "ink", label: "Маркеры туши" },
+    { key: "cps", label: "Контрольные точки" },
+    { key: "seams", label: "Линии стыков" },
+    { key: "overlaps", label: "Зоны наложения" },
+    { key: "warnings", label: "Предупреждения" },
+  ];
+
+  const selInfo = (() => {
+    if (!selected) return null;
+    if (selected.type === "fragment") {
+      const f = fragments.find((x) => x.id === selected.id);
+      if (!f) return null;
+      const p = placements[f.id];
+      const init = initialPlacements[f.id];
+      const strokeCount = strokes.filter((s) => s.fragmentId === f.id).length;
+      const edited = init
+        ? Math.abs(p.x - init.x) + Math.abs(p.y - init.y) + Math.abs(p.rot - init.rot) > 0.5
+        : false;
+      return { kind: "fragment" as const, f, p, strokeCount, edited };
+    }
+    const s = seams.find((x) => x.id === selected.id);
+    if (!s) return null;
+    return { kind: "seam" as const, s };
+  })();
+
+  const statusStyle: Record<PreviewStatus["level"], string> = {
+    ready: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30",
+    check: "text-amber-600 bg-amber-500/10 border-amber-500/30",
+    issues: "text-red-600 bg-red-500/10 border-red-500/30",
+  };
+  const statusLabel: Record<PreviewStatus["level"], string> = {
+    ready: "Готово к экспорту",
+    check: "Требуется проверка",
+    issues: "Есть проблемные стыки",
+  };
+  const seamCounts = seams.reduce(
+    (acc, s) => ({ ...acc, [s.kind]: (acc[s.kind] ?? 0) + 1 }),
+    {} as Record<SeamKind, number>,
+  );
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Просмотр</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Финальная проверка собранной гистотопограммы.
+          </p>
+        </div>
+        <Eye className="h-5 w-5 text-primary shrink-0" />
+      </div>
+
+      <div>
+        <div className="text-xs text-muted-foreground mb-1.5">Сравнение</div>
+        <div className="grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1 text-[11px] font-medium">
+          {(["initial", "current", "registered"] as PreviewCompare[]).map((c) => (
+            <button
+              key={c}
+              onClick={() => setCompare(c)}
+              disabled={c === "registered" && !hasPending && compare !== "registered"}
+              className={`py-1.5 rounded-md transition-colors ${
+                compare === c ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground disabled:opacity-40"
+              }`}
+            >
+              {c === "initial" ? "До" : c === "current" ? "Сейчас" : "После рег."}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+          <Layers className="h-3 w-3" /> Слои
+        </div>
+        <ul className="space-y-1.5 rounded-lg border border-border bg-panel p-2">
+          {layerRows.map((r) => (
+            <li key={r.key} className="flex items-center justify-between text-xs">
+              <span className="text-foreground">{r.label}</span>
+              <Switch checked={layers[r.key]} onCheckedChange={() => toggle(r.key)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="rounded-lg border border-border bg-panel p-2.5 text-xs space-y-1.5">
+        <div className="font-medium">Проверка стыков</div>
+        {(["good", "gap", "overlap", "rotation"] as SeamKind[]).map((k) => (
+          <div key={k} className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SEAM_COLOR[k] }} />
+              {SEAM_LABEL[k]}
+            </span>
+            <span className="tabular-nums font-medium">{seamCounts[k] ?? 0}</span>
+          </div>
+        ))}
+        {seams.length > 0 && (
+          <div className="pt-1.5 border-t border-border max-h-32 overflow-y-auto space-y-1">
+            {seams.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => onSelect({ type: "seam", id: s.id })}
+                className={`w-full text-left flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-secondary ${
+                  selected?.type === "seam" && selected.id === s.id ? "bg-accent" : ""
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: SEAM_COLOR[s.kind] }} />
+                <span className="text-[11px]">{s.a} ↔ {s.b}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">{SEAM_LABEL[s.kind]}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {selInfo && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 text-xs space-y-1">
+          {selInfo.kind === "fragment" ? (
+            <>
+              <div className="font-semibold">Фрагмент {selInfo.f.id}</div>
+              <div className="text-muted-foreground">Сдвиг X: <span className="text-foreground tabular-nums">{Math.round(selInfo.p.x * 100)} мкм</span></div>
+              <div className="text-muted-foreground">Сдвиг Y: <span className="text-foreground tabular-nums">{Math.round(selInfo.p.y * 100)} мкм</span></div>
+              <div className="text-muted-foreground">Поворот: <span className="text-foreground tabular-nums">{selInfo.p.rot.toFixed(1)}°</span></div>
+              <div className="text-muted-foreground">Масштаб: <span className="text-foreground tabular-nums">{selInfo.p.w.toFixed(1)}%</span></div>
+              <div className="text-muted-foreground">Маркеры туши: <span className="text-foreground tabular-nums">{selInfo.strokeCount}</span></div>
+              <div className="text-muted-foreground">Ручные правки: <span className="text-foreground">{selInfo.edited ? "да" : "нет"}</span></div>
+            </>
+          ) : (
+            <>
+              <div className="font-semibold flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SEAM_COLOR[selInfo.s.kind] }} />
+                Стык {selInfo.s.a} ↔ {selInfo.s.b}
+              </div>
+              <div className="text-muted-foreground">Оценка: <span className="text-foreground">{SEAM_LABEL[selInfo.s.kind]}</span></div>
+              <div className="text-muted-foreground">Наложение: <span className="text-foreground tabular-nums">{selInfo.s.overlap.toFixed(1)}%</span></div>
+              <div className="text-muted-foreground">Зазор: <span className="text-foreground tabular-nums">{selInfo.s.gap.toFixed(2)}%</span></div>
+              <div className="text-muted-foreground">Разница поворотов: <span className="text-foreground tabular-nums">{selInfo.s.rotDiff.toFixed(1)}°</span></div>
+            </>
+          )}
+          <button onClick={() => onSelect(null)} className="text-primary hover:underline text-[11px] mt-1">
+            Снять выделение
+          </button>
+        </div>
+      )}
+
+      <div className={`rounded-lg border px-2.5 py-2 text-[11px] space-y-1 ${statusStyle[status.level]}`}>
+        <div className="font-semibold flex items-center gap-1.5">
+          {status.level === "ready" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+          {statusLabel[status.level]}
+        </div>
+        {status.notes.length > 0 ? (
+          <ul className="list-disc pl-4 space-y-0.5 opacity-80">
+            {status.notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        ) : (
+          <div className="opacity-80">Все фрагменты размещены, стыки без нареканий.</div>
+        )}
+      </div>
+
+      <Button className="w-full h-9 gap-2" onClick={onExport}>
+        <Download className="h-4 w-4" /> Экспорт гистотопограммы
+      </Button>
+      <p className="text-[10px] text-muted-foreground">
+        Просмотр не редактирует сборку. Правки положения — в разделах «Макет» и «Регистрация».
+      </p>
+    </div>
+  );
+}
