@@ -1509,6 +1509,8 @@ function Workspace() {
         existingIds={fragments.map((f) => f.id)}
         onImport={importFragments}
         onBusyChange={be.setUploading}
+        backendAvailable={backendAvailable}
+        backendCaseId={backendCaseId}
       />
       <SettingsPanel
         open={settingsOpen}
