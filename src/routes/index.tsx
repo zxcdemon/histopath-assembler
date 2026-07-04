@@ -525,6 +525,163 @@ function Workspace() {
     }
   }, [previewStatus, pendingPlacements]);
 
+  // ============= Assembly metrics (real-time) =============
+  const [assemblyDetailsOpen, setAssemblyDetailsOpen] = useState(false);
+  const [warningsHidden, setWarningsHidden] = useState(false);
+  const [highlightProblems, setHighlightProblems] = useState(false);
+
+  const assemblyMetrics = useMemo(() => {
+    const activePlacements = pendingPlacements ?? placements;
+    const currentSeams = computeSeams(fragments, activePlacements);
+    const totalFragments = fragments.length;
+    const usedFragments = fragments.filter((f) => !!activePlacements[f.id]).length;
+
+    // Errors (blocking) vs warnings (advisory)
+    type Issue = { id: string; kind: "error" | "warning"; title: string; detail?: string };
+    const errors: Issue[] = [];
+    const warnings: Issue[] = [];
+
+    // Fragment-level checks: rotation, scale outliers
+    const widths = fragments.map((f) => activePlacements[f.id]?.w ?? 0).filter((w) => w > 0);
+    const meanW = widths.reduce((s, w) => s + w, 0) / (widths.length || 1);
+    fragments.forEach((f) => {
+      const p = activePlacements[f.id];
+      if (!p) {
+        errors.push({ id: `unused-${f.id}`, kind: "error", title: `${f.label}: не размещён` });
+        return;
+      }
+      const rot = Math.abs(((p.rot + 540) % 360) - 180);
+      const rotAbs = Math.min(Math.abs(p.rot % 360), 360 - Math.abs(p.rot % 360));
+      if (rotAbs > 45)
+        warnings.push({ id: `rot-${f.id}`, kind: "warning", title: `${f.label}: сильный поворот (${Math.round(rotAbs)}°)` });
+      void rot;
+      if (meanW && Math.abs(p.w - meanW) / meanW > 0.4)
+        warnings.push({ id: `scale-${f.id}`, kind: "warning", title: `${f.label}: масштаб отличается от остальных` });
+    });
+
+    // Seam-level issues
+    currentSeams.forEach((s) => {
+      const pair = `${fragments.find((f) => f.id === s.a)?.label ?? s.a} ↔ ${fragments.find((f) => f.id === s.b)?.label ?? s.b}`;
+      if (s.kind === "overlap")
+        errors.push({ id: `ov-${s.id}`, kind: "error", title: `${pair}: наложение ${s.overlap.toFixed(0)}%` });
+      else if (s.kind === "gap")
+        warnings.push({ id: `gap-${s.id}`, kind: "warning", title: `${pair}: зазор ${s.gap.toFixed(1)}%` });
+      else if (s.kind === "rotation")
+        warnings.push({ id: `rd-${s.id}`, kind: "warning", title: `${pair}: разница поворота ${s.rotDiff.toFixed(0)}°` });
+    });
+
+    // Fragments without any neighbour (in matches or near seams)
+    const withNeighbour = new Set<string>();
+    matches.forEach((m) => { withNeighbour.add(m.a); withNeighbour.add(m.b); });
+    currentSeams.forEach((s) => { withNeighbour.add(s.a); withNeighbour.add(s.b); });
+    fragments.forEach((f) => {
+      if (!withNeighbour.has(f.id) && totalFragments > 1)
+        warnings.push({ id: `lone-${f.id}`, kind: "warning", title: `${f.label}: нет подтверждённого соседа` });
+    });
+
+    if (pendingPlacements)
+      warnings.push({ id: "pending", kind: "warning", title: "Есть несохранённая регистрация" });
+
+    // Matches list (marker + control-point pairs)
+    type MatchRow = { id: string; a: string; b: string; kind: "ink" | "cp" | "seam"; detail: string; status: "good" | "check" | "approx" };
+    const matchRows: MatchRow[] = [];
+    matches.forEach((m) => {
+      matchRows.push({
+        id: `ink-${m.a}-${m.b}`,
+        a: fragments.find((f) => f.id === m.a)?.label ?? m.a,
+        b: fragments.find((f) => f.id === m.b)?.label ?? m.b,
+        kind: "ink",
+        detail: `маркеры туши: ${m.colors.length}`,
+        status: m.colors.length >= 2 ? "good" : "check",
+      });
+    });
+    const cpPairs = new Map<string, { a?: string; b?: string; count: number }>();
+    controlPoints.forEach((cp) => {
+      const key = cp.fragmentId;
+      if (!cpPairs.has(key)) cpPairs.set(key, { a: key, count: 0 });
+    });
+    // count cp pairs across fragments
+    const cpByPair = new Map<number, Set<string>>();
+    controlPoints.forEach((cp) => {
+      if (!cpByPair.has(cp.pairId)) cpByPair.set(cp.pairId, new Set());
+      cpByPair.get(cp.pairId)!.add(cp.fragmentId);
+    });
+    const cpFragPairs = new Map<string, number>();
+    cpByPair.forEach((frags) => {
+      const arr = [...frags].sort();
+      if (arr.length === 2) {
+        const key = arr.join("|");
+        cpFragPairs.set(key, (cpFragPairs.get(key) ?? 0) + 1);
+      }
+    });
+    cpFragPairs.forEach((count, key) => {
+      const [a, b] = key.split("|");
+      matchRows.push({
+        id: `cp-${key}`,
+        a: fragments.find((f) => f.id === a)?.label ?? a,
+        b: fragments.find((f) => f.id === b)?.label ?? b,
+        kind: "cp",
+        detail: `контрольные точки: ${count}`,
+        status: count >= 3 ? "good" : count >= 1 ? "check" : "approx",
+      });
+    });
+    currentSeams.filter((s) => s.kind === "good").forEach((s) => {
+      matchRows.push({
+        id: `seam-${s.id}`,
+        a: fragments.find((f) => f.id === s.a)?.label ?? s.a,
+        b: fragments.find((f) => f.id === s.b)?.label ?? s.b,
+        kind: "seam",
+        detail: "край ткани",
+        status: "approx",
+      });
+    });
+
+    const matchCount = matchRows.length;
+    const errorCount = errors.length;
+    const warningCount = warnings.length;
+
+    // Score
+    let score = 40;
+    if (totalFragments > 0) score += Math.round((usedFragments / totalFragments) * 20);
+    score += Math.min(20, matches.length * 4);
+    score += Math.min(10, cpFragPairs.size * 3);
+    score += Math.min(10, currentSeams.filter((s) => s.kind === "good").length * 2);
+    score -= errorCount * 10;
+    score -= warningCount * 3;
+    if (pendingPlacements) score -= 5;
+    score = Math.max(0, Math.min(100, score));
+    if (totalFragments < 2) score = Math.min(score, 15);
+
+    let statusText: string;
+    let statusTone: "good" | "check" | "issues";
+    if (errorCount > 0) { statusText = "Есть ошибки"; statusTone = "issues"; }
+    else if (warningCount > 0 || pendingPlacements) { statusText = "Требуется проверка"; statusTone = "check"; }
+    else if (totalFragments >= 2 && usedFragments === totalFragments) { statusText = "Готово к экспорту"; statusTone = "good"; }
+    else { statusText = "Загрузите фрагменты"; statusTone = "check"; }
+
+    const problemFragmentIds = new Set<string>();
+    errors.concat(warnings).forEach((i) => {
+      const m = i.id.match(/-(F-\d+)/g);
+      m?.forEach((s) => problemFragmentIds.add(s.slice(1)));
+    });
+
+    return {
+      score,
+      matchCount,
+      errorCount,
+      warningCount,
+      totalFragments,
+      usedFragments,
+      matchRows,
+      errors,
+      warnings,
+      statusText,
+      statusTone,
+      problemFragmentIds,
+    };
+  }, [fragments, placements, pendingPlacements, matches, controlPoints]);
+
+
 
   const addControlPoint = useCallback(
     (fid: string, x: number, y: number) => {
@@ -944,6 +1101,8 @@ function Workspace() {
               selectedId={selected.id}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
+              metrics={assemblyMetrics}
+              onShowDetails={() => setAssemblyDetailsOpen(true)}
             />
           ) : (
             <button
@@ -1131,6 +1290,32 @@ function Workspace() {
         onShowSuggestion={assistantShowSuggestion}
         onApplySuggestion={assistantApplySuggestion}
         onHideSuggestion={assistantHideSuggestion}
+        metrics={{
+          score: assemblyMetrics.score,
+          matchCount: assemblyMetrics.matchCount,
+          errorCount: assemblyMetrics.errorCount,
+          warningCount: assemblyMetrics.warningCount,
+          totalFragments: assemblyMetrics.totalFragments,
+          usedFragments: assemblyMetrics.usedFragments,
+          statusText: assemblyMetrics.statusText,
+          statusTone: assemblyMetrics.statusTone,
+        }}
+      />
+      <AssemblyDetailsSheet
+        open={assemblyDetailsOpen}
+        onOpenChange={setAssemblyDetailsOpen}
+        metrics={assemblyMetrics}
+        warningsHidden={warningsHidden}
+        onToggleWarnings={() => setWarningsHidden((v) => !v)}
+        onHighlightProblems={() => {
+          setHighlightProblems(true);
+          toast("Проблемные места подсвечены", { description: "Подсветка исчезнет через несколько секунд." });
+          setTimeout(() => setHighlightProblems(false), 4000);
+        }}
+        onGoToRegistration={() => {
+          setAssemblyDetailsOpen(false);
+          setSection("registration");
+        }}
       />
       <ImportDialog
         open={importOpen}
@@ -1802,11 +1987,22 @@ function BottomBar({
   selectedId,
   onSelect,
   onCollapse,
+  metrics,
+  onShowDetails,
 }: {
   fragments: Fragment[];
   selectedId: string;
   onSelect: (id: string) => void;
   onCollapse: () => void;
+  metrics: {
+    score: number;
+    matchCount: number;
+    errorCount: number;
+    warningCount: number;
+    statusText: string;
+    statusTone: "good" | "check" | "issues";
+  };
+  onShowDetails: () => void;
 }) {
   return (
     <div className="shrink-0 bg-panel border-t border-border px-3 md:px-4 py-3">
@@ -1849,31 +2045,226 @@ function BottomBar({
             })}
           </div>
         </div>
-        <div className="hidden md:flex shrink-0 items-center gap-3 border-l border-border pl-4 self-stretch">
+        <div
+          className="hidden md:flex shrink-0 items-center gap-3 border-l border-border pl-4 self-stretch"
+          title="Учитываются маркеры туши, контрольные точки и найденные соседние края"
+        >
           <div className="relative h-14 w-14">
             <svg viewBox="0 0 36 36" className="h-14 w-14 -rotate-90">
               <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border)" strokeWidth="3" />
               <circle
                 cx="18" cy="18" r="15.5" fill="none"
-                stroke="var(--primary)" strokeWidth="3" strokeLinecap="round"
-                strokeDasharray={`${(68 / 100) * 97.4} 100`}
+                stroke={
+                  metrics.statusTone === "issues"
+                    ? "#ef4444"
+                    : metrics.statusTone === "check"
+                      ? "#eab308"
+                      : "var(--primary)"
+                }
+                strokeWidth="3" strokeLinecap="round"
+                strokeDasharray={`${(metrics.score / 100) * 97.4} 100`}
+                style={{ transition: "stroke-dasharray 300ms ease" }}
               />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold">
-              68%
+            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">
+              {metrics.score}%
             </span>
           </div>
           <div className="text-xs">
             <div className="font-semibold text-sm mb-0.5">Сборка</div>
-            <div className="text-muted-foreground">Совпадений: 124</div>
-            <div className="text-muted-foreground">Ошибок: 2</div>
-            <button className="mt-1 text-primary hover:underline">Подробности</button>
+            <div className="text-muted-foreground tabular-nums">Совпадений: {metrics.matchCount}</div>
+            <div
+              className={
+                metrics.errorCount > 0
+                  ? "text-destructive tabular-nums"
+                  : metrics.warningCount > 0
+                    ? "text-amber-600 tabular-nums"
+                    : "text-muted-foreground tabular-nums"
+              }
+            >
+              {metrics.errorCount > 0
+                ? `Ошибок: ${metrics.errorCount}`
+                : metrics.warningCount > 0
+                  ? `Предупреждений: ${metrics.warningCount}`
+                  : "Ошибок: 0"}
+            </div>
+            <button
+              type="button"
+              onClick={onShowDetails}
+              className="mt-1 text-primary hover:underline focus:underline"
+            >
+              Подробности
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+type AssemblyMetrics = {
+  score: number;
+  matchCount: number;
+  errorCount: number;
+  warningCount: number;
+  totalFragments: number;
+  usedFragments: number;
+  matchRows: { id: string; a: string; b: string; kind: "ink" | "cp" | "seam"; detail: string; status: "good" | "check" | "approx" }[];
+  errors: { id: string; kind: "error" | "warning"; title: string }[];
+  warnings: { id: string; kind: "error" | "warning"; title: string }[];
+  statusText: string;
+  statusTone: "good" | "check" | "issues";
+};
+
+function AssemblyDetailsSheet({
+  open,
+  onOpenChange,
+  metrics,
+  warningsHidden,
+  onToggleWarnings,
+  onHighlightProblems,
+  onGoToRegistration,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  metrics: AssemblyMetrics;
+  warningsHidden: boolean;
+  onToggleWarnings: () => void;
+  onHighlightProblems: () => void;
+  onGoToRegistration: () => void;
+}) {
+  const statusColor =
+    metrics.statusTone === "issues" ? "text-destructive" : metrics.statusTone === "check" ? "text-amber-600" : "text-emerald-600";
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[380px] sm:w-[420px] p-0 flex flex-col">
+        <div className="px-5 pt-5 pb-3 border-b border-border">
+          <SheetTitle className="text-base font-semibold">Детали сборки</SheetTitle>
+          <div className={`mt-1 text-xs font-medium ${statusColor}`}>{metrics.statusText}</div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Overview */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Общий статус</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <Stat label="Качество" value={`${metrics.score}%`} />
+              <Stat label="Фрагменты" value={`${metrics.usedFragments} / ${metrics.totalFragments}`} />
+              <Stat label="Совпадения" value={String(metrics.matchCount)} />
+              <Stat label="Ошибки" value={String(metrics.errorCount)} tone={metrics.errorCount > 0 ? "error" : undefined} />
+              <Stat label="Предупреждения" value={String(metrics.warningCount)} tone={metrics.warningCount > 0 ? "warn" : undefined} />
+            </div>
+          </section>
+
+          {/* Matches */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">Совпадения</div>
+            {metrics.matchRows.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Совпадений пока не найдено.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {metrics.matchRows.slice(0, 20).map((m) => (
+                  <li key={m.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate">
+                      <span className="font-medium">{m.a} ↔ {m.b}</span>{" "}
+                      <span className="text-muted-foreground">· {m.detail}</span>
+                    </span>
+                    <span
+                      className={
+                        m.status === "good"
+                          ? "text-emerald-600 shrink-0"
+                          : m.status === "check"
+                            ? "text-amber-600 shrink-0"
+                            : "text-muted-foreground shrink-0"
+                      }
+                    >
+                      {m.status === "good" ? "хорошо" : m.status === "check" ? "проверить" : "приблизительно"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Errors */}
+          <section>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+              Ошибки{metrics.errorCount ? ` (${metrics.errorCount})` : ""}
+            </div>
+            {metrics.errors.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Ошибок нет.</div>
+            ) : (
+              <ul className="space-y-1">
+                {metrics.errors.map((e) => (
+                  <li key={e.id} className="text-xs flex gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                    <span>{e.title}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Warnings */}
+          {!warningsHidden && (
+            <section>
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Предупреждения{metrics.warningCount ? ` (${metrics.warningCount})` : ""}
+              </div>
+              {metrics.warnings.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Предупреждений нет.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {metrics.warnings.map((w) => (
+                    <li key={w.id} className="text-xs flex gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span>{w.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+        </div>
+
+        <div className="border-t border-border px-5 py-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={onHighlightProblems} className="text-xs">
+            Показать проблемные места
+          </Button>
+          <Button size="sm" variant="outline" onClick={onGoToRegistration} className="text-xs">
+            Перейти к регистрации
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onToggleWarnings} className="text-xs">
+            {warningsHidden ? "Показать предупреждения" : "Скрыть предупреждения"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} className="text-xs ml-auto">
+            Закрыть
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "error" | "warn" }) {
+  return (
+    <div className="rounded-md border border-border bg-secondary/40 px-2.5 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div
+        className={
+          tone === "error"
+            ? "text-sm font-semibold text-destructive tabular-nums"
+            : tone === "warn"
+              ? "text-sm font-semibold text-amber-600 tabular-nums"
+              : "text-sm font-semibold tabular-nums"
+        }
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+
 
 function FragmentParams({
   fragment,

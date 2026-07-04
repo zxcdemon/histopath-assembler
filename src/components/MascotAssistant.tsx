@@ -18,6 +18,7 @@ export function MascotAssistant({
   onShowSuggestion,
   onApplySuggestion,
   onHideSuggestion,
+  metrics,
 }: {
   onOpenHelp?: () => void;
   fragmentCount?: number;
@@ -30,10 +31,21 @@ export function MascotAssistant({
   onShowSuggestion?: () => { ok: boolean; error?: string };
   onApplySuggestion?: () => void;
   onHideSuggestion?: () => void;
+  metrics?: {
+    score: number;
+    matchCount: number;
+    errorCount: number;
+    warningCount: number;
+    totalFragments: number;
+    usedFragments: number;
+    statusText: string;
+    statusTone: "good" | "check" | "issues";
+  };
 } = {}) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const close = () => {
     setOpen(false);
@@ -163,16 +175,23 @@ export function MascotAssistant({
             ? "Не получилось"
             : "Помочь со сборкой?";
 
+  const hasData = fragmentCount >= 2 && hasMarkers;
+  const idleBody = !fragmentCount
+    ? "Загрузите фрагменты и добавьте маркеры, чтобы я смог предложить сборку."
+    : !hasData
+      ? `Вижу ${fragmentCount} фрагмент(ов). Добавьте маркеры туши или контрольные точки, и я предложу раскладку.`
+      : `Вижу ${fragmentCount} фрагмент(ов). Можно предложить раскладку по маркерам туши, краям и текущему положению.`;
+
   const body =
     phase === "preview"
       ? "Показываю рассчитанные позиции на холсте. Примените или отклоните — исходные изображения не меняются."
       : phase === "suggestion"
         ? "Реальные фрагменты не изменены. Полупрозрачные копии показывают предложенное положение."
         : phase === "computing"
-          ? "Анализирую маркеры туши, края и текущее положение фрагментов."
+          ? "Расчёт сборки…"
           : phase === "error"
             ? errorMsg ?? "Что-то пошло не так."
-            : "Могу предложить раскладку фрагментов по маркерам туши, краям и текущему положению. Результат можно проверить перед применением.";
+            : idleBody;
 
   return (
     <>
@@ -211,6 +230,34 @@ export function MascotAssistant({
               <p className="mt-1 text-[13px] text-muted-foreground leading-relaxed">{body}</p>
             </div>
           </div>
+
+          {metrics && metrics.totalFragments > 0 && (
+            <div
+              className={
+                "mt-3 rounded-lg px-3 py-2 text-[12px] flex items-center gap-2 border " +
+                (metrics.statusTone === "issues"
+                  ? "bg-destructive/5 border-destructive/20 text-destructive"
+                  : metrics.statusTone === "check"
+                    ? "bg-amber-500/5 border-amber-500/20 text-amber-700"
+                    : "bg-emerald-500/5 border-emerald-500/20 text-emerald-700")
+              }
+            >
+              <span
+                className={
+                  "h-1.5 w-1.5 rounded-full shrink-0 " +
+                  (metrics.statusTone === "issues"
+                    ? "bg-destructive"
+                    : metrics.statusTone === "check"
+                      ? "bg-amber-500"
+                      : "bg-emerald-500")
+                }
+              />
+              <span className="tabular-nums">
+                Качество: {metrics.score}% · совпадений: {metrics.matchCount} · ошибок: {metrics.errorCount}
+              </span>
+            </div>
+          )}
+
 
           <div className="mt-4 flex flex-wrap gap-2">
             {phase === "idle" && (
@@ -261,6 +308,23 @@ export function MascotAssistant({
               </>
             )}
           </div>
+
+          {phase === "idle" && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setExplainOpen((v) => !v)}
+                className="text-[12px] text-primary hover:underline focus:underline"
+              >
+                {explainOpen ? "Скрыть пояснение" : "Что будет сделано?"}
+              </button>
+              {explainOpen && (
+                <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed">
+                  Автосборка рассчитает сдвиг, поворот и масштаб фрагментов. Исходные изображения не изменяются, ткань не дорисовывается. Результат можно применить или отклонить.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
