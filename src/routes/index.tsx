@@ -963,6 +963,13 @@ function Canvas({
   eraseNear,
   snapshotStrokes,
   matchedColorsByFragment,
+  registrationMode,
+  regMode,
+  regPair,
+  controlPoints,
+  addControlPoint,
+  removeControlPoint,
+  pendingPlacements,
 }: {
   fragments: Fragment[];
   selectedId: string;
@@ -985,6 +992,13 @@ function Canvas({
   eraseNear: (fid: string, x: number, y: number, radius: number) => void;
   snapshotStrokes: () => void;
   matchedColorsByFragment: Map<string, Set<string>>;
+  registrationMode: boolean;
+  regMode: "auto" | "semi" | "manual";
+  regPair: [string, string] | null;
+  controlPoints: ControlPoint[];
+  addControlPoint: (fid: string, x: number, y: number) => void;
+  removeControlPoint: (id: string) => void;
+  pendingPlacements: Record<string, Placement> | null;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
