@@ -1,0 +1,15 @@
+services:
+  histotopo-backend:
+    build: ./backend
+    container_name: histotopo-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - STORAGE_DIR=/data
+      - CORS_ORIGINS=*
+    volumes:
+      - histotopo-data:/data
+    restart: unless-stopped
+
+volumes:
+  histotopo-data:
