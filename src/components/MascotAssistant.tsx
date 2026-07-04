@@ -18,6 +18,7 @@ export function MascotAssistant({
   onShowSuggestion,
   onApplySuggestion,
   onHideSuggestion,
+  metrics,
 }: {
   onOpenHelp?: () => void;
   fragmentCount?: number;
@@ -30,6 +31,16 @@ export function MascotAssistant({
   onShowSuggestion?: () => { ok: boolean; error?: string };
   onApplySuggestion?: () => void;
   onHideSuggestion?: () => void;
+  metrics?: {
+    score: number;
+    matchCount: number;
+    errorCount: number;
+    warningCount: number;
+    totalFragments: number;
+    usedFragments: number;
+    statusText: string;
+    statusTone: "good" | "check" | "issues";
+  };
 } = {}) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
