@@ -225,6 +225,10 @@ function Workspace() {
   const handleSection = (id: string) => {
     setSection(id);
     setNavOpen(false);
+    if (id === "import") {
+      setImportOpen(true);
+      return;
+    }
     const labels: Record<string, string> = {
       import: "Импорт", markers: "Маркеры", layout: "Макет",
       registration: "Регистрация", preview: "Просмотр",
@@ -232,6 +236,7 @@ function Workspace() {
     };
     if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
   };
+
 
 
   return (
