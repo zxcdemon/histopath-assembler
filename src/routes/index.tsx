@@ -1137,6 +1137,78 @@ function Workspace() {
         </Sheet>
 
         <main className="flex-1 flex flex-col min-w-0 relative">
+          {/* Backend status banner */}
+          {be.backendConfigured && (
+            <div
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${
+                be.backendAvailable === true
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : be.backendAvailable === false
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-border bg-secondary/40 text-muted-foreground"
+              }`}
+            >
+              {be.backendAvailable === true ? (
+                <>
+                  <ServerCog className="h-3.5 w-3.5" />
+                  <span>
+                    Backend подключён{be.backendCaseId ? ` · case ${be.backendCaseId}` : ""}
+                    {be.isRegistering ? " · регистрация…" : ""}
+                    {be.isExporting ? " · экспорт…" : ""}
+                  </span>
+                </>
+              ) : be.backendAvailable === false ? (
+                <>
+                  <ServerCrash className="h-3.5 w-3.5" />
+                  <span>Модуль .mrxs недоступен. Запустите backend-сервис (см. README).</span>
+                </>
+              ) : (
+                <span>Проверяем доступность backend…</span>
+              )}
+            </div>
+          )}
+          {section === "markers" && (
+            <div className="px-3 py-1.5 border-b border-border bg-panel flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const caseId = be.requireCaseId();
+                  if (!caseId) return;
+                  try {
+                    const r = await backend.detectInk(caseId);
+                    toast.success(`Найдено маркеров: ${r.markers.length}`, {
+                      description: "Результаты добавлены к сборочным метрикам.",
+                    });
+                    // Trigger a metrics refresh via register call.
+                    const reg = await backend.register(caseId, {
+                      markers: r.markers,
+                      controlPoints: [],
+                      currentTransforms: placementsToTransforms(placements, fragments),
+                    });
+                    setBackendMetrics(reg.metrics);
+                  } catch (e) {
+                    toast.error("Автоопределение маркеров не удалось", {
+                      description: e instanceof Error ? e.message : String(e),
+                    });
+                  }
+                }}
+                disabled={!be.backendAvailable}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title={
+                  be.backendAvailable
+                    ? "Запустить детектор ink-маркеров на backend"
+                    : "Автоопределение маркеров доступно только при запущенном backend"
+                }
+              >
+                <Wand2 className="h-3.5 w-3.5" /> Автоопределить маркеры
+              </button>
+              {backendMetrics && (
+                <span className="text-xs text-muted-foreground">
+                  score {backendMetrics.score} · пар {backendMetrics.matchCount}
+                </span>
+              )}
+            </div>
+          )}
+
           {previewMode ? (
             <PreviewView
               fragments={fragments}
