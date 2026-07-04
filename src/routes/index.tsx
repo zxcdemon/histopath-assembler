@@ -958,20 +958,40 @@ function Workspace() {
                 matches={matches}
               />
             )}
-            <FragmentParams
-              fragment={selected}
-              placement={placements[selected.id]}
-              updatePlacement={updatePlacement}
-              resetPlacement={resetPlacement}
-              inkLevels={inkLevels}
-              setInkLevel={setInkLevel}
-              inkVisible={inkVisible}
-              toggleInkVisible={toggleInkVisible}
-              mode={mode}
-              setMode={setMode}
-              inkOn={inkOn}
-              setInkOn={setInkOn}
-            />
+            {previewMode ? (
+              <PreviewPanel
+                fragments={fragments}
+                placements={previewPlacements}
+                initialPlacements={initialPlacements}
+                strokes={strokes}
+                seams={seams}
+                layers={previewLayers}
+                setLayers={setPreviewLayers}
+                compare={previewCompare}
+                setCompare={setPreviewCompare}
+                selected={previewSelected}
+                onSelect={setPreviewSelected}
+                status={previewStatus}
+                onExport={exportComposite}
+                hasPending={!!pendingPlacements}
+              />
+            ) : (
+              <FragmentParams
+                fragment={selected}
+                placement={placements[selected.id]}
+                updatePlacement={updatePlacement}
+                resetPlacement={resetPlacement}
+                inkLevels={inkLevels}
+                setInkLevel={setInkLevel}
+                inkVisible={inkVisible}
+                toggleInkVisible={toggleInkVisible}
+                mode={mode}
+                setMode={setMode}
+                inkOn={inkOn}
+                setInkOn={setInkOn}
+              />
+            )}
+
           </SheetContent>
         </Sheet>
 
