@@ -1370,3 +1370,185 @@ function ParamRow({
   );
 }
 
+function MarkerTools({
+  fragment,
+  strokes,
+  matches,
+  brushColor,
+  setBrushColor,
+  brushSize,
+  setBrushSize,
+  brushTool,
+  setBrushTool,
+  onUndo,
+  canUndo,
+  onClear,
+  onExport,
+}: {
+  fragment: Fragment;
+  strokes: MarkerStroke[];
+  matches: { a: string; b: string; colors: string[] }[];
+  brushColor: string;
+  setBrushColor: (c: string) => void;
+  brushSize: number;
+  setBrushSize: (n: number) => void;
+  brushTool: MarkerTool;
+  setBrushTool: (t: MarkerTool) => void;
+  onUndo: () => void;
+  canUndo: boolean;
+  onClear: () => void;
+  onExport: () => void;
+}) {
+  const fragStrokes = strokes.filter((s) => s.fragmentId === fragment.id);
+  const relatedMatches = matches.filter((m) => m.a === fragment.id || m.b === fragment.id);
+  return (
+    <div className="p-4 space-y-4 border-b border-border bg-accent/30">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Маркеры туши</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Нанесите цветную тушь на любой участок края фрагмента.
+          </p>
+        </div>
+        <MapPin className="h-5 w-5 text-primary" />
+      </div>
+
+      {/* Tool switch */}
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1 text-xs font-medium">
+        <button
+          onClick={() => setBrushTool("brush")}
+          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-colors ${
+            brushTool === "brush" ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Brush className="h-3.5 w-3.5" /> Кисть
+        </button>
+        <button
+          onClick={() => setBrushTool("eraser")}
+          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md transition-colors ${
+            brushTool === "eraser" ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Eraser className="h-3.5 w-3.5" /> Ластик
+        </button>
+      </div>
+
+      {/* Palette */}
+      <div>
+        <div className="text-xs text-muted-foreground mb-1.5">Цвет</div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {MARKER_PALETTE.map((c) => (
+            <button
+              key={c}
+              onClick={() => { setBrushColor(c); setBrushTool("brush"); }}
+              aria-label={`Цвет ${c}`}
+              className={`h-6 w-6 rounded-full border-2 transition-transform ${
+                brushColor === c ? "border-foreground scale-110" : "border-transparent hover:scale-105"
+              }`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+          <label className="h-6 w-6 rounded-full border border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden relative" title="Свой цвет">
+            <Plus className="h-3 w-3 text-muted-foreground" />
+            <input
+              type="color"
+              value={brushColor}
+              onChange={(e) => { setBrushColor(e.target.value); setBrushTool("brush"); }}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Brush size */}
+      <div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+          <span>Размер кисти</span>
+          <span className="tabular-nums text-foreground">{brushSize}px</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={10}
+          step={0.5}
+          value={brushSize}
+          onChange={(e) => setBrushSize(Number(e.target.value))}
+          className="w-full accent-primary"
+          aria-label="Размер кисти"
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="grid grid-cols-3 gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onUndo}
+          disabled={!canUndo}
+        >
+          <Undo2 className="h-3.5 w-3.5" /> Отменить
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onClear}
+          disabled={fragStrokes.length === 0}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Очистить
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs px-2"
+          onClick={onExport}
+        >
+          <Download className="h-3.5 w-3.5" /> Экспорт
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="rounded-lg border border-border bg-panel p-2.5 text-xs space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Штрихов на фрагменте</span>
+          <span className="font-medium tabular-nums">{fragStrokes.length}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Всего маркеров в кейсе</span>
+          <span className="font-medium tabular-nums">{strokes.length}</span>
+        </div>
+        <div className="pt-1 border-t border-border">
+          <div className="flex items-center gap-1 text-muted-foreground mb-1">
+            <Link2 className="h-3 w-3 text-primary" />
+            Возможные соседи ({relatedMatches.length})
+          </div>
+          {relatedMatches.length === 0 ? (
+            <div className="text-muted-foreground/70 text-[11px]">
+              Пометьте одинаковым цветом края соседних фрагментов, чтобы система предложила стыковку.
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {relatedMatches.map((m, i) => (
+                <li key={i} className="flex items-center gap-1.5">
+                  <span className="font-medium">{m.a === fragment.id ? m.b : m.a}</span>
+                  <span className="ml-auto flex items-center gap-1">
+                    {m.colors.map((c) => (
+                      <span
+                        key={c}
+                        className="h-2.5 w-2.5 rounded-full border border-border"
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
