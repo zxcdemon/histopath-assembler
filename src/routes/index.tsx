@@ -344,7 +344,10 @@ function Workspace() {
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        if (e.shiftKey) redo();
+        if (paintMode) {
+          if (e.shiftKey) return;
+          undoStroke();
+        } else if (e.shiftKey) redo();
         else undo();
         return;
       }
@@ -353,6 +356,7 @@ function Workspace() {
         redo();
         return;
       }
+      if (paintMode) return; // in painting mode, arrows/R/F don't nudge
       if (!selected) return;
       const step = e.shiftKey ? 5 : 1;
       const p = placements[selected.id];
@@ -366,7 +370,7 @@ function Workspace() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected, placements, commitHistory, undo, redo]);
+  }, [selected, placements, commitHistory, undo, redo, paintMode, undoStroke]);
 
   const handleSection = (id: string) => {
     setSection(id);
