@@ -601,7 +601,7 @@ function Workspace() {
       if (!cpPairs.has(key)) cpPairs.set(key, { a: key, count: 0 });
     });
     // count cp pairs across fragments
-    const cpByPair = new Map<string, Set<string>>();
+    const cpByPair = new Map<number, Set<string>>();
     controlPoints.forEach((cp) => {
       if (!cpByPair.has(cp.pairId)) cpByPair.set(cp.pairId, new Set());
       cpByPair.get(cp.pairId)!.add(cp.fragmentId);
