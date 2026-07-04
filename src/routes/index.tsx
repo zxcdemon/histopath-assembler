@@ -540,7 +540,8 @@ function Workspace() {
     // Real export via backend when available (PNG / OME-TIFF / BigTIFF).
     if (be.backendCaseId) {
       be.setExporting(true);
-      const fmt = (settings.export?.format ?? "ome-tiff") as "png" | "ome-tiff" | "bigtiff";
+      const rawFmt = settings.export?.format ?? "ome-tiff";
+      const fmt: "png" | "ome-tiff" | "bigtiff" = rawFmt === "big-tiff" ? "bigtiff" : "ome-tiff";
       backend
         .exportBlob(be.backendCaseId, {
           transforms: placementsToTransforms(placements, fragments),
