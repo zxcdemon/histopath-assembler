@@ -1279,7 +1279,6 @@ function Canvas({
                       })}
                     </svg>
                   )}
-                </div>
 
                   {/* Control points overlay */}
                   {registrationMode && fragCPs.length > 0 && (
