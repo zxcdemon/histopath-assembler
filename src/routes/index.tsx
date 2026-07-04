@@ -41,6 +41,8 @@ import { Switch } from "@/components/ui/switch";
 
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
+import { ImportDialog } from "@/components/ImportDialog";
+
 import { MascotAssistant } from "@/components/MascotAssistant";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
@@ -92,19 +94,21 @@ function Workspace() {
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
   const [section, setSection] = useState<string>("layout");
+  const [importOpen, setImportOpen] = useState(false);
+  const [fragments, setFragments] = useState<Fragment[]>(() => FRAGMENTS.map((f) => ({ ...f })));
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
-    Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])),
+    Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])),
   );
   const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
     const init: InkLevels = {};
-    FRAGMENTS.forEach((f) =>
+    fragments.forEach((f) =>
       INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = 66)),
     );
     return init;
   });
   const [inkVisible, setInkVisible] = useState<InkVisibility>(() => {
     const init: InkVisibility = {};
-    FRAGMENTS.forEach((f) =>
+    fragments.forEach((f) =>
       INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = true)),
     );
     return init;
@@ -139,7 +143,7 @@ function Workspace() {
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
   const resetPlacement = (id: string) => {
-    const src = FRAGMENTS.find((f) => f.id === id);
+    const src = fragments.find((f) => f.id === id);
     if (src) {
       commitHistory();
       setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
@@ -153,10 +157,38 @@ function Workspace() {
   const toggleInkVisible = (fid: string, label: string) =>
     setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
 
+  const importFragments = (newFragments: Fragment[]) => {
+    setFragments((prev) => [...prev, ...newFragments]);
+    setPlacements((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) => (next[f.id] = { ...f.place }));
+      return next;
+    });
+    setInkLevels((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) =>
+        INK_MARKERS.forEach((m) => (next[inkKey(f.id, m.label)] = 66)),
+      );
+      return next;
+    });
+    setInkVisible((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) =>
+        INK_MARKERS.forEach((m) => (next[inkKey(f.id, m.label)] = true)),
+      );
+      return next;
+    });
+    if (newFragments[0]) setSelectedId(newFragments[0].id);
+    toast(`Импортировано: ${newFragments.length}`, {
+      description: "Файлы добавлены на канву.",
+    });
+  };
+
   const selected = useMemo(
-    () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
-    [selectedId],
+    () => fragments.find((f) => f.id === selectedId) ?? fragments[0],
+    [selectedId, fragments],
   );
+
 
   // Keyboard shortcuts: arrows nudge, R rotate, F flip, Esc deselect, Ctrl+Z/Y undo/redo.
   useEffect(() => {
@@ -193,6 +225,10 @@ function Workspace() {
   const handleSection = (id: string) => {
     setSection(id);
     setNavOpen(false);
+    if (id === "import") {
+      setImportOpen(true);
+      return;
+    }
     const labels: Record<string, string> = {
       import: "Импорт", markers: "Маркеры", layout: "Макет",
       registration: "Регистрация", preview: "Просмотр",
@@ -200,6 +236,7 @@ function Workspace() {
     };
     if (id !== "layout") toast(`Раздел «${labels[id]}»`, { description: "Открыт выбранный раздел." });
   };
+
 
 
   return (
@@ -227,6 +264,7 @@ function Workspace() {
 
         <main className="flex-1 flex flex-col min-w-0 relative">
           <Canvas
+            fragments={fragments}
             selectedId={selected.id}
             onSelect={setSelectedId}
             zoom={zoom}
@@ -242,6 +280,7 @@ function Workspace() {
 
           {bottomOpen ? (
             <BottomBar
+              fragments={fragments}
               selectedId={selected.id}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
@@ -251,9 +290,10 @@ function Workspace() {
               onClick={() => setBottomOpen(true)}
               className="mx-3 mb-3 self-start rounded-lg bg-panel border border-border shadow-panel px-3 py-1.5 text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
             >
-              <ChevronUp className="h-3.5 w-3.5" /> Фрагменты ({FRAGMENTS.length})
+              <ChevronUp className="h-3.5 w-3.5" /> Фрагменты ({fragments.length})
             </button>
           )}
+
         </main>
 
         {/* Desktop right panel */}
@@ -307,7 +347,14 @@ function Workspace() {
       </button>
 
       <MascotAssistant />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
+        existingIds={fragments.map((f) => f.id)}
+        onImport={importFragments}
+      />
       <Toaster position="top-center" />
+
     </div>
   );
 }
@@ -433,6 +480,7 @@ function NavRail({
 }
 
 function Canvas({
+  fragments,
   selectedId,
   onSelect,
   zoom,
@@ -444,6 +492,8 @@ function Canvas({
   inkLevels,
   inkVisible,
 }: {
+  fragments: Fragment[];
+
   selectedId: string;
   onSelect: (id: string) => void;
   zoom: number;
@@ -552,7 +602,8 @@ function Canvas({
         style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
       >
 
-        {FRAGMENTS.map((f) => {
+        {fragments.map((f) => {
+
           const isSel = f.id === selectedId;
           const p = placements[f.id];
           return (
@@ -700,10 +751,12 @@ function SelectionHandles({
 
 
 function BottomBar({
+  fragments,
   selectedId,
   onSelect,
   onCollapse,
 }: {
+  fragments: Fragment[];
   selectedId: string;
   onSelect: (id: string) => void;
   onCollapse: () => void;
@@ -713,7 +766,7 @@ function BottomBar({
       <div className="flex items-start gap-3 md:gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-sm font-semibold">Фрагменты ({FRAGMENTS.length})</h2>
+            <h2 className="text-sm font-semibold">Фрагменты ({fragments.length})</h2>
             <button
               onClick={onCollapse}
               className="h-6 w-6 rounded hover:bg-secondary text-muted-foreground flex items-center justify-center"
@@ -723,7 +776,8 @@ function BottomBar({
             </button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
-            {FRAGMENTS.map((f) => {
+            {fragments.map((f) => {
+
               const isSel = f.id === selectedId;
               return (
                 <button

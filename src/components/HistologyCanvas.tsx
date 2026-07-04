@@ -3,10 +3,17 @@ import histologyAsset from "@/assets/histology.png.asset.json";
 export type Fragment = {
   id: string;
   label: string;
-  // crop of source histology image (percent)
+  // crop of source histology image (percent) — used when no explicit src
   crop: { x: number; y: number; w: number; h: number };
   // placement on canvas (percent of canvas box)
   place: { x: number; y: number; w: number; rot: number };
+  // Optional: user-imported image source (data URL / object URL / http).
+  src?: string;
+  // Optional: file kind for imports where we can't render a real image
+  // (e.g. proprietary .mrxs). When set, FragmentImage draws a placeholder.
+  kind?: "image" | "mrxs";
+  // Optional filename for imports
+  fileName?: string;
 };
 
 export const FRAGMENTS: Fragment[] = [
@@ -27,6 +34,50 @@ export function FragmentImage({
   className?: string;
   style?: React.CSSProperties;
 }) {
+  // Placeholder for .mrxs (Mirax) — real rendering needs OpenSlide server-side.
+  if (fragment.kind === "mrxs") {
+    return (
+      <div
+        className={className}
+        role="img"
+        aria-label={`Гистологический фрагмент ${fragment.label}`}
+        style={{
+          background:
+            "repeating-linear-gradient(45deg, oklch(0.93 0.03 25) 0 10px, oklch(0.88 0.05 25) 10px 20px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "oklch(0.35 0.08 25)",
+          fontSize: 10,
+          fontWeight: 600,
+          textAlign: "center",
+          padding: 4,
+          ...style,
+        }}
+      >
+        MRXS<br />{fragment.fileName ?? fragment.label}
+      </div>
+    );
+  }
+
+  // Imported image — cover the whole box, no crop.
+  if (fragment.src) {
+    return (
+      <div
+        className={className}
+        role="img"
+        aria-label={`Гистологический фрагмент ${fragment.label}`}
+        style={{
+          backgroundImage: `url(${fragment.src})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          ...style,
+        }}
+      />
+    );
+  }
+
   const { crop } = fragment;
   const bgSizeX = 100 / (crop.w / 100);
   const bgSizeY = 100 / (crop.h / 100);
@@ -47,4 +98,3 @@ export function FragmentImage({
     />
   );
 }
-
