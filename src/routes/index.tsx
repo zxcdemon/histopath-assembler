@@ -857,11 +857,21 @@ function Workspace() {
     if (!pendingPlacements) return;
     commitHistory();
     setPlacements(pendingPlacements);
+    // Persist transforms to backend so the case reflects the applied layout.
+    if (be.backendCaseId) {
+      const t = placementsToTransforms(pendingPlacements, fragments);
+      if (Object.keys(t).length) {
+        backend
+          .setTransforms(be.backendCaseId, t)
+          .catch((e) => console.warn("setTransforms failed", e));
+      }
+    }
     setPendingPlacements(null);
     setRegQuality(null);
     setRegResidual(null);
     toast("Трансформации применены");
-  }, [pendingPlacements, commitHistory]);
+  }, [pendingPlacements, commitHistory, be.backendCaseId, fragments]);
+
 
   const rejectPending = useCallback(() => {
     setPendingPlacements(null);
