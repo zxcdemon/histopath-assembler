@@ -68,12 +68,6 @@ export const Route = createFileRoute("/")({
   component: Workspace,
 });
 
-const INK_MARKERS = [
-  { color: "oklch(0.20 0.02 260)", label: "Чёрный", count: 4 },
-  { color: "oklch(0.60 0.22 27)", label: "Красный", count: 4 },
-  { color: "oklch(0.58 0.20 260)", label: "Синий", count: 4 },
-  { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4 },
-];
 
 const INK_MARKERS = [
   { color: "oklch(0.20 0.02 260)", label: "Чёрный", count: 4, edge: "top" as const },
