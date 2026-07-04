@@ -85,10 +85,11 @@ export function MascotAssistant({ onOpenHelp }: { onOpenHelp?: () => void } = {}
 
         {/* Mascot overflows to the right and top of the card */}
         <button
-          onClick={handleAuto}
-          aria-label="Спросить помощника"
+          onClick={handleHelp}
+          aria-label="Открыть помощь"
           className="absolute right-2 md:right-3 bottom-0 hover:scale-[1.03] transition-transform origin-bottom"
         >
+
           <img
             src={mascotHero}
             alt="Помощник"
