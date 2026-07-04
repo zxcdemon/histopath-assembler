@@ -38,7 +38,12 @@ import {
   Trash2,
   Download,
   Link2,
+  Layers,
+  AlertTriangle,
+  CheckCircle2,
+  SplitSquareHorizontal,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
