@@ -1628,6 +1628,45 @@ function Canvas({
             +
           </span>
         ))}
+
+        {/* Ghost suggestion overlay: proposed placements shown without mutating real ones */}
+        {ghostPlacements &&
+          fragments.map((f) => {
+            const gp = ghostPlacements[f.id];
+            if (!gp) return null;
+            return (
+              <div
+                key={`ghost-${f.id}`}
+                aria-hidden
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${gp.x}%`,
+                  top: `${gp.y}%`,
+                  width: `${gp.w}%`,
+                  transform: `rotate(${gp.rot}deg)`,
+                  transformOrigin: "center",
+                }}
+              >
+                <div
+                  className="aspect-[3/2] rounded-sm relative"
+                  style={{
+                    outline: "2px dashed color-mix(in oklch, var(--primary) 75%, transparent)",
+                    outlineOffset: 2,
+                    background: "color-mix(in oklch, var(--primary) 8%, transparent)",
+                  }}
+                >
+                  <FragmentImage
+                    fragment={f}
+                    className="w-full h-full opacity-30"
+                    style={{ transform: gp.flip ? "scaleX(-1)" : undefined }}
+                  />
+                  <span className="absolute -top-2 left-1 -translate-y-full text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary text-primary-foreground shadow-sm whitespace-nowrap">
+                    Предложение {f.label}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
       </div>
 
       {/* Zoom controls */}
