@@ -363,7 +363,7 @@ function IconBtn({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonEl
   return (
     <button
       {...props}
-      className="h-9 w-9 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center"
+      className="h-9 w-9 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground flex items-center justify-center disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
     >
       {children}
     </button>
