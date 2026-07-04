@@ -365,6 +365,167 @@ function Workspace() {
     }
   }, [fragments, placements, strokes, matches]);
 
+  // ============= Registration state =============
+  const [controlPoints, setControlPoints] = useState<ControlPoint[]>([]);
+  const [regPair, setRegPair] = useState<[string, string] | null>(null);
+  const [pendingPlacements, setPendingPlacements] = useState<Record<string, Placement> | null>(null);
+  const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
+  const [regResidual, setRegResidual] = useState<number | null>(null);
+  const registrationMode = section === "registration";
+
+  const addControlPoint = useCallback(
+    (fid: string, x: number, y: number) => {
+      if (!regPair || (fid !== regPair[0] && fid !== regPair[1])) return;
+      const [A, B] = regPair;
+      const other = fid === A ? B : A;
+      setControlPoints((prev) => {
+        const pairCPs = prev.filter((cp) => cp.fragmentId === A || cp.fragmentId === B);
+        const pairIds = [...new Set(pairCPs.map((cp) => cp.pairId))].sort((a, b) => a - b);
+        let pid: number | undefined;
+        for (const p of pairIds) {
+          const hasThis = pairCPs.some((cp) => cp.pairId === p && cp.fragmentId === fid);
+          const hasOther = pairCPs.some((cp) => cp.pairId === p && cp.fragmentId === other);
+          if (!hasThis && hasOther) { pid = p; break; }
+        }
+        if (pid === undefined) pid = (pairIds.length ? pairIds[pairIds.length - 1] : 0) + 1;
+        return [
+          ...prev,
+          {
+            id: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            fragmentId: fid,
+            x, y, pairId: pid,
+          },
+        ];
+      });
+    },
+    [regPair],
+  );
+
+  const removeControlPoint = useCallback((id: string) => {
+    setControlPoints((prev) => prev.filter((cp) => cp.id !== id));
+  }, []);
+
+  const resetRegistration = useCallback(() => {
+    setControlPoints([]);
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Регистрация сброшена");
+  }, []);
+
+  // Auto: use marker matches to snap fragments to their first matched neighbour.
+  const runAutoRegistration = useCallback(() => {
+    if (!matches.length) {
+      setPendingPlacements(null);
+      setRegQuality("bad");
+      setRegResidual(null);
+      toast("Нет совпадений маркеров", { description: "Нанесите одинаковые цвета на края соседних фрагментов." });
+      return;
+    }
+    const next: Record<string, Placement> = { ...placements };
+    const moved = new Set<string>();
+    const sorted = [...matches].sort((a, b) => b.colors.length - a.colors.length);
+    for (const m of sorted) {
+      const anchor = moved.has(m.a) ? m.a : moved.has(m.b) ? m.b : m.a;
+      const target = anchor === m.a ? m.b : m.a;
+      if (moved.has(target)) continue;
+      const commonColor = m.colors[0];
+      const strokesA = strokes.filter((s) => s.fragmentId === anchor && s.color === commonColor);
+      const strokesB = strokes.filter((s) => s.fragmentId === target && s.color === commonColor);
+      if (!strokesA.length || !strokesB.length) continue;
+      const centroid = (list: MarkerStroke[], pl: Placement) => {
+        let sx = 0, sy = 0, n = 0;
+        list.forEach((st) => st.points.forEach((pt) => {
+          const c = cpToCanvas(pt, pl);
+          sx += c.x; sy += c.y; n++;
+        }));
+        return { x: sx / n, y: sy / n };
+      };
+      const ca = centroid(strokesA, next[anchor]);
+      const cb = centroid(strokesB, next[target]);
+      const cur = next[target];
+      next[target] = { ...cur, x: cur.x + (ca.x - cb.x), y: cur.y + (ca.y - cb.y) };
+      moved.add(anchor);
+      moved.add(target);
+    }
+    setPendingPlacements(next);
+    const q: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
+    setRegQuality(q);
+    setRegResidual(null);
+    toast("Автосовмещение выполнено", { description: `Пар: ${matches.length}` });
+  }, [matches, strokes, placements]);
+
+  const runSemiRegistration = useCallback(() => {
+    if (!regPair) { toast("Выберите пару фрагментов"); return; }
+    const [A, B] = regPair;
+    const pairIds = [...new Set(controlPoints.filter((cp) => cp.fragmentId === A || cp.fragmentId === B).map((cp) => cp.pairId))];
+    const src: { x: number; y: number }[] = [];
+    const dst: { x: number; y: number }[] = [];
+    const plA = placements[A];
+    const plB = placements[B];
+    for (const pid of pairIds) {
+      const cA = controlPoints.find((cp) => cp.fragmentId === A && cp.pairId === pid);
+      const cB = controlPoints.find((cp) => cp.fragmentId === B && cp.pairId === pid);
+      if (!cA || !cB) continue;
+      dst.push(cpToCanvas(cA, plA));
+      src.push(cpToCanvas(cB, plB));
+    }
+    if (src.length < 1) { toast("Нужна хотя бы одна пара контрольных точек"); return; }
+    const sim = computeSimilarity(src, dst);
+    if (!sim) return;
+    const heightPct = plB.w * (2 / 3);
+    const cx = plB.x + plB.w / 2;
+    const cy = plB.y + heightPct / 2;
+    const cos = Math.cos(sim.angleRad), sin = Math.sin(sim.angleRad);
+    const newCx = sim.scale * (cos * cx - sin * cy) + sim.tx;
+    const newCy = sim.scale * (sin * cx + cos * cy) + sim.ty;
+    const newW = plB.w * sim.scale;
+    const newH = newW * (2 / 3);
+    const newPlace: Placement = {
+      x: newCx - newW / 2,
+      y: newCy - newH / 2,
+      w: newW,
+      rot: plB.rot + (sim.angleRad * 180) / Math.PI,
+      flip: plB.flip,
+    };
+    let sum = 0;
+    for (let i = 0; i < src.length; i++) {
+      const x = sim.scale * (cos * src[i].x - sin * src[i].y) + sim.tx;
+      const y = sim.scale * (sin * src[i].x + cos * src[i].y) + sim.ty;
+      sum += (x - dst[i].x) ** 2 + (y - dst[i].y) ** 2;
+    }
+    const rms = Math.sqrt(sum / src.length);
+    setRegResidual(rms);
+    const q: RegQuality =
+      src.length >= 3 && rms < 1.5 ? "good" : rms < 3.5 ? "check" : "bad";
+    setRegQuality(q);
+    setPendingPlacements({ ...placements, [B]: newPlace });
+    toast("Полуавтосовмещение рассчитано", { description: `RMS ${rms.toFixed(2)}%` });
+  }, [regPair, controlPoints, placements]);
+
+  const runRegistration = useCallback(() => {
+    if (mode === "auto") runAutoRegistration();
+    else if (mode === "semi") runSemiRegistration();
+    else toast("Ручной режим", { description: "Двигайте, поворачивайте и масштабируйте фрагменты напрямую." });
+  }, [mode, runAutoRegistration, runSemiRegistration]);
+
+  const applyPending = useCallback(() => {
+    if (!pendingPlacements) return;
+    commitHistory();
+    setPlacements(pendingPlacements);
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Трансформации применены");
+  }, [pendingPlacements, commitHistory]);
+
+  const rejectPending = useCallback(() => {
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Результат отклонён");
+  }, []);
+
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
     setPlacements((prev) => {
