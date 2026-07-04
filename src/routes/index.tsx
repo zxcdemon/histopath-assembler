@@ -265,11 +265,13 @@ function Workspace() {
             resetPlacement={resetPlacement}
             inkLevels={inkLevels}
             setInkLevel={setInkLevel}
+            inkVisible={inkVisible}
+            toggleInkVisible={toggleInkVisible}
             mode={mode}
             setMode={setMode}
             inkOn={inkOn}
             setInkOn={setInkOn}
-          />
+
         </aside>
         {/* Mobile params drawer */}
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
