@@ -47,12 +47,16 @@ export function ImportDialog({
   existingIds,
   onImport,
   onBusyChange,
+  backendAvailable,
+  backendCaseId,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   existingIds: string[];
   onImport: (fragments: Fragment[]) => void;
   onBusyChange?: (busy: boolean) => void;
+  backendAvailable?: boolean | null;
+  backendCaseId?: string | null;
 }) {
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -64,11 +68,19 @@ export function ImportDialog({
     if (!open) return;
     let cancelled = false;
     setBackendReady(null);
+
+    if (backendAvailable !== undefined) {
+      setBackendReady(backendAvailable);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     backend.isAvailable().then((ok) => !cancelled && setBackendReady(ok));
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, backendAvailable]);
 
   const addFiles = (files: FileList | File[]) => {
     const arr = Array.from(files);
@@ -133,10 +145,10 @@ export function ImportDialog({
       const valid = staged.filter((s) => s.kind !== "unsupported");
       const hasMrxs = valid.some((s) => s.kind === "mrxs");
 
-      // If backend is available, upload EVERY file so we always get real
-      // metadata + thumbnail. If unavailable and there are .mrxs files, warn.
-      let caseId: string | null = null;
-      if (backendReady) {
+      const ready = backendAvailable ?? backendReady;
+      let caseId: string | null = backendCaseId ?? null;
+
+      if (ready && hasMrxs && !caseId) {
         try {
           const c = await backend.createCase();
           caseId = c.caseId;
@@ -144,8 +156,8 @@ export function ImportDialog({
           console.warn("createCase failed", e);
           toast.error("Модуль .mrxs недоступен. Запустите backend-сервис");
         }
-      } else if (hasMrxs) {
-        toast.warning("Модуль .mrxs недоступен. Запустите backend-сервис.");
+      } else if (!ready && hasMrxs) {
+        toast.error("Для .mrxs нужно запустить backend с OpenSlide");
       }
 
       const out: Fragment[] = [];
@@ -172,12 +184,17 @@ export function ImportDialog({
             }
           | undefined;
 
-        if (caseId) {
+        if (s.kind === "mrxs" && caseId) {
           try {
             const f = isZip
               ? await backend.uploadFragmentArchive(caseId, s.file)
               : await backend.uploadFragment(caseId, s.file);
             const thumbnailUrl = backend.assetUrl(f.thumbnail);
+
+            if (!thumbnailUrl) {
+              throw new Error("Thumbnail не получен от backend");
+            }
+
             remote = {
               backendId: f.id,
               remoteId: f.id,
