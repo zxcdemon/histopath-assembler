@@ -62,7 +62,7 @@ import {
   transformsToPlacements,
   controlPointsToBackend,
 } from "@/lib/backend-hooks";
-import { ServerCrash, ServerCog, Wand2 } from "lucide-react";
+import { ServerCog, Wand2 } from "lucide-react";
 
 import { MascotAssistant } from "@/components/MascotAssistant";
 
