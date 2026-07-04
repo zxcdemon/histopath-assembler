@@ -220,7 +220,7 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle>Импорт сканов</DialogTitle>
           <DialogDescription>
-            Загрузите от {MIN_FILES} до {MAX_FILES} файлов. Поддерживаются PNG, JPG, WEBP, TIFF и .mrxs.
+            Загрузите от {MIN_FILES} до {MAX_FILES} файлов. Поддерживаются PNG, JPG, WEBP, TIFF, .mrxs и .zip (архив с .mrxs + сателлитом).
           </DialogDescription>
         </DialogHeader>
 
@@ -267,7 +267,7 @@ export function ImportDialog({
           <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm font-medium">Перетащите файлы сюда или нажмите</p>
           <p className="text-xs text-muted-foreground mt-1">
-            .mrxs, .png, .jpg, .webp, .tiff · до {MAX_FILES} шт.
+            .mrxs, .zip, .png, .jpg, .webp, .tiff · до {MAX_FILES} шт.
           </p>
           <input
             ref={inputRef}
