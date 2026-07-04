@@ -51,8 +51,11 @@ import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
 import { ImportDialog } from "@/components/ImportDialog";
+import { SettingsPanel, loadSettings, type AppSettings, type FragmentFileInfo } from "@/components/SettingsPanel";
+import { HelpPanel } from "@/components/HelpPanel";
 
 import { MascotAssistant } from "@/components/MascotAssistant";
+
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import histologyAsset from "@/assets/histology.png.asset.json";
