@@ -94,19 +94,21 @@ function Workspace() {
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
   const [section, setSection] = useState<string>("layout");
+  const [importOpen, setImportOpen] = useState(false);
+  const [fragments, setFragments] = useState<Fragment[]>(() => FRAGMENTS.map((f) => ({ ...f })));
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
-    Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])),
+    Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])),
   );
   const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
     const init: InkLevels = {};
-    FRAGMENTS.forEach((f) =>
+    fragments.forEach((f) =>
       INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = 66)),
     );
     return init;
   });
   const [inkVisible, setInkVisible] = useState<InkVisibility>(() => {
     const init: InkVisibility = {};
-    FRAGMENTS.forEach((f) =>
+    fragments.forEach((f) =>
       INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = true)),
     );
     return init;
@@ -141,7 +143,7 @@ function Workspace() {
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
   const resetPlacement = (id: string) => {
-    const src = FRAGMENTS.find((f) => f.id === id);
+    const src = fragments.find((f) => f.id === id);
     if (src) {
       commitHistory();
       setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
@@ -155,10 +157,38 @@ function Workspace() {
   const toggleInkVisible = (fid: string, label: string) =>
     setInkVisible((prev) => ({ ...prev, [inkKey(fid, label)]: !prev[inkKey(fid, label)] }));
 
+  const importFragments = (newFragments: Fragment[]) => {
+    setFragments((prev) => [...prev, ...newFragments]);
+    setPlacements((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) => (next[f.id] = { ...f.place }));
+      return next;
+    });
+    setInkLevels((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) =>
+        INK_MARKERS.forEach((m) => (next[inkKey(f.id, m.label)] = 66)),
+      );
+      return next;
+    });
+    setInkVisible((prev) => {
+      const next = { ...prev };
+      newFragments.forEach((f) =>
+        INK_MARKERS.forEach((m) => (next[inkKey(f.id, m.label)] = true)),
+      );
+      return next;
+    });
+    if (newFragments[0]) setSelectedId(newFragments[0].id);
+    toast(`Импортировано: ${newFragments.length}`, {
+      description: "Файлы добавлены на канву.",
+    });
+  };
+
   const selected = useMemo(
-    () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
-    [selectedId],
+    () => fragments.find((f) => f.id === selectedId) ?? fragments[0],
+    [selectedId, fragments],
   );
+
 
   // Keyboard shortcuts: arrows nudge, R rotate, F flip, Esc deselect, Ctrl+Z/Y undo/redo.
   useEffect(() => {
