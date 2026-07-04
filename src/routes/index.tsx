@@ -105,6 +105,68 @@ const MARKER_PALETTE = [
 const CASE_ID = "2025-05-20_Печень_Биопсия";
 const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
 
+// ============= Image registration =============
+export type ControlPoint = {
+  id: string;
+  fragmentId: string;
+  x: number; // 0-100 % of fragment box
+  y: number;
+  pairId: number;
+};
+export type RegQuality = "good" | "check" | "bad";
+const CP_PALETTE = [
+  "#ef4444", "#3b82f6", "#22c55e", "#eab308",
+  "#a855f7", "#f97316", "#06b6d4", "#ec4899",
+  "#14b8a6", "#8b5cf6",
+];
+const cpColor = (pairId: number) => CP_PALETTE[(pairId - 1) % CP_PALETTE.length];
+
+// Convert a control point in fragment-local % to canvas % using its placement.
+function cpToCanvas(cp: { x: number; y: number }, p: Placement) {
+  const heightPct = p.w * (2 / 3); // fragments have aspect 3:2
+  const cx = p.x + p.w / 2;
+  const cy = p.y + heightPct / 2;
+  const ox = ((cp.x - 50) / 100) * p.w * (p.flip ? -1 : 1);
+  const oy = ((cp.y - 50) / 100) * heightPct;
+  const rad = (p.rot * Math.PI) / 180;
+  return {
+    x: cx + ox * Math.cos(rad) - oy * Math.sin(rad),
+    y: cy + ox * Math.sin(rad) + oy * Math.cos(rad),
+  };
+}
+
+// 2-D similarity transform S→T (scale, rotation, translation) via closed-form.
+function computeSimilarity(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+) {
+  const n = Math.min(src.length, dst.length);
+  if (n < 1) return null;
+  const sμ = { x: 0, y: 0 }, tμ = { x: 0, y: 0 };
+  for (let i = 0; i < n; i++) { sμ.x += src[i].x; sμ.y += src[i].y; tμ.x += dst[i].x; tμ.y += dst[i].y; }
+  sμ.x /= n; sμ.y /= n; tμ.x /= n; tμ.y /= n;
+  let a = 0, b = 0, d = 0;
+  for (let i = 0; i < n; i++) {
+    const sx = src[i].x - sμ.x, sy = src[i].y - sμ.y;
+    const tx = dst[i].x - tμ.x, ty = dst[i].y - tμ.y;
+    a += sx * tx + sy * ty;
+    b += sx * ty - sy * tx;
+    d += sx * sx + sy * sy;
+  }
+  if (d < 1e-9 || n === 1) {
+    return { scale: 1, angleRad: 0, tx: tμ.x - sμ.x, ty: tμ.y - sμ.y };
+  }
+  const scale = Math.sqrt(a * a + b * b) / d;
+  const angleRad = Math.atan2(b, a);
+  const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
+  return {
+    scale,
+    angleRad,
+    tx: tμ.x - scale * (cos * sμ.x - sin * sμ.y),
+    ty: tμ.y - scale * (sin * sμ.x + cos * sμ.y),
+  };
+}
+
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
 function Workspace() {
@@ -303,6 +365,167 @@ function Workspace() {
     }
   }, [fragments, placements, strokes, matches]);
 
+  // ============= Registration state =============
+  const [controlPoints, setControlPoints] = useState<ControlPoint[]>([]);
+  const [regPair, setRegPair] = useState<[string, string] | null>(null);
+  const [pendingPlacements, setPendingPlacements] = useState<Record<string, Placement> | null>(null);
+  const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
+  const [regResidual, setRegResidual] = useState<number | null>(null);
+  const registrationMode = section === "registration";
+
+  const addControlPoint = useCallback(
+    (fid: string, x: number, y: number) => {
+      if (!regPair || (fid !== regPair[0] && fid !== regPair[1])) return;
+      const [A, B] = regPair;
+      const other = fid === A ? B : A;
+      setControlPoints((prev) => {
+        const pairCPs = prev.filter((cp) => cp.fragmentId === A || cp.fragmentId === B);
+        const pairIds = [...new Set(pairCPs.map((cp) => cp.pairId))].sort((a, b) => a - b);
+        let pid: number | undefined;
+        for (const p of pairIds) {
+          const hasThis = pairCPs.some((cp) => cp.pairId === p && cp.fragmentId === fid);
+          const hasOther = pairCPs.some((cp) => cp.pairId === p && cp.fragmentId === other);
+          if (!hasThis && hasOther) { pid = p; break; }
+        }
+        if (pid === undefined) pid = (pairIds.length ? pairIds[pairIds.length - 1] : 0) + 1;
+        return [
+          ...prev,
+          {
+            id: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            fragmentId: fid,
+            x, y, pairId: pid,
+          },
+        ];
+      });
+    },
+    [regPair],
+  );
+
+  const removeControlPoint = useCallback((id: string) => {
+    setControlPoints((prev) => prev.filter((cp) => cp.id !== id));
+  }, []);
+
+  const resetRegistration = useCallback(() => {
+    setControlPoints([]);
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Регистрация сброшена");
+  }, []);
+
+  // Auto: use marker matches to snap fragments to their first matched neighbour.
+  const runAutoRegistration = useCallback(() => {
+    if (!matches.length) {
+      setPendingPlacements(null);
+      setRegQuality("bad");
+      setRegResidual(null);
+      toast("Нет совпадений маркеров", { description: "Нанесите одинаковые цвета на края соседних фрагментов." });
+      return;
+    }
+    const next: Record<string, Placement> = { ...placements };
+    const moved = new Set<string>();
+    const sorted = [...matches].sort((a, b) => b.colors.length - a.colors.length);
+    for (const m of sorted) {
+      const anchor = moved.has(m.a) ? m.a : moved.has(m.b) ? m.b : m.a;
+      const target = anchor === m.a ? m.b : m.a;
+      if (moved.has(target)) continue;
+      const commonColor = m.colors[0];
+      const strokesA = strokes.filter((s) => s.fragmentId === anchor && s.color === commonColor);
+      const strokesB = strokes.filter((s) => s.fragmentId === target && s.color === commonColor);
+      if (!strokesA.length || !strokesB.length) continue;
+      const centroid = (list: MarkerStroke[], pl: Placement) => {
+        let sx = 0, sy = 0, n = 0;
+        list.forEach((st) => st.points.forEach((pt) => {
+          const c = cpToCanvas(pt, pl);
+          sx += c.x; sy += c.y; n++;
+        }));
+        return { x: sx / n, y: sy / n };
+      };
+      const ca = centroid(strokesA, next[anchor]);
+      const cb = centroid(strokesB, next[target]);
+      const cur = next[target];
+      next[target] = { ...cur, x: cur.x + (ca.x - cb.x), y: cur.y + (ca.y - cb.y) };
+      moved.add(anchor);
+      moved.add(target);
+    }
+    setPendingPlacements(next);
+    const q: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
+    setRegQuality(q);
+    setRegResidual(null);
+    toast("Автосовмещение выполнено", { description: `Пар: ${matches.length}` });
+  }, [matches, strokes, placements]);
+
+  const runSemiRegistration = useCallback(() => {
+    if (!regPair) { toast("Выберите пару фрагментов"); return; }
+    const [A, B] = regPair;
+    const pairIds = [...new Set(controlPoints.filter((cp) => cp.fragmentId === A || cp.fragmentId === B).map((cp) => cp.pairId))];
+    const src: { x: number; y: number }[] = [];
+    const dst: { x: number; y: number }[] = [];
+    const plA = placements[A];
+    const plB = placements[B];
+    for (const pid of pairIds) {
+      const cA = controlPoints.find((cp) => cp.fragmentId === A && cp.pairId === pid);
+      const cB = controlPoints.find((cp) => cp.fragmentId === B && cp.pairId === pid);
+      if (!cA || !cB) continue;
+      dst.push(cpToCanvas(cA, plA));
+      src.push(cpToCanvas(cB, plB));
+    }
+    if (src.length < 1) { toast("Нужна хотя бы одна пара контрольных точек"); return; }
+    const sim = computeSimilarity(src, dst);
+    if (!sim) return;
+    const heightPct = plB.w * (2 / 3);
+    const cx = plB.x + plB.w / 2;
+    const cy = plB.y + heightPct / 2;
+    const cos = Math.cos(sim.angleRad), sin = Math.sin(sim.angleRad);
+    const newCx = sim.scale * (cos * cx - sin * cy) + sim.tx;
+    const newCy = sim.scale * (sin * cx + cos * cy) + sim.ty;
+    const newW = plB.w * sim.scale;
+    const newH = newW * (2 / 3);
+    const newPlace: Placement = {
+      x: newCx - newW / 2,
+      y: newCy - newH / 2,
+      w: newW,
+      rot: plB.rot + (sim.angleRad * 180) / Math.PI,
+      flip: plB.flip,
+    };
+    let sum = 0;
+    for (let i = 0; i < src.length; i++) {
+      const x = sim.scale * (cos * src[i].x - sin * src[i].y) + sim.tx;
+      const y = sim.scale * (sin * src[i].x + cos * src[i].y) + sim.ty;
+      sum += (x - dst[i].x) ** 2 + (y - dst[i].y) ** 2;
+    }
+    const rms = Math.sqrt(sum / src.length);
+    setRegResidual(rms);
+    const q: RegQuality =
+      src.length >= 3 && rms < 1.5 ? "good" : rms < 3.5 ? "check" : "bad";
+    setRegQuality(q);
+    setPendingPlacements({ ...placements, [B]: newPlace });
+    toast("Полуавтосовмещение рассчитано", { description: `RMS ${rms.toFixed(2)}%` });
+  }, [regPair, controlPoints, placements]);
+
+  const runRegistration = useCallback(() => {
+    if (mode === "auto") runAutoRegistration();
+    else if (mode === "semi") runSemiRegistration();
+    else toast("Ручной режим", { description: "Двигайте, поворачивайте и масштабируйте фрагменты напрямую." });
+  }, [mode, runAutoRegistration, runSemiRegistration]);
+
+  const applyPending = useCallback(() => {
+    if (!pendingPlacements) return;
+    commitHistory();
+    setPlacements(pendingPlacements);
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Трансформации применены");
+  }, [pendingPlacements, commitHistory]);
+
+  const rejectPending = useCallback(() => {
+    setPendingPlacements(null);
+    setRegQuality(null);
+    setRegResidual(null);
+    toast("Результат отклонён");
+  }, []);
+
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
     setPlacements((prev) => {
@@ -435,6 +658,13 @@ function Workspace() {
             eraseNear={eraseNear}
             snapshotStrokes={snapshotStrokes}
             matchedColorsByFragment={matchedColorsByFragment}
+            registrationMode={registrationMode}
+            regMode={mode}
+            regPair={regPair}
+            controlPoints={controlPoints}
+            addControlPoint={addControlPoint}
+            removeControlPoint={removeControlPoint}
+            pendingPlacements={pendingPlacements}
           />
 
 
@@ -475,6 +705,25 @@ function Workspace() {
               onExport={exportMarkers}
             />
           )}
+          {registrationMode && (
+            <RegistrationPanel
+              fragments={fragments}
+              controlPoints={controlPoints}
+              regPair={regPair}
+              setRegPair={setRegPair}
+              onRemoveControlPoint={removeControlPoint}
+              mode={mode}
+              setMode={setMode}
+              onRun={runRegistration}
+              onApply={applyPending}
+              onReject={rejectPending}
+              onReset={resetRegistration}
+              hasPending={!!pendingPlacements}
+              quality={regQuality}
+              residual={regResidual}
+              matches={matches}
+            />
+          )}
           <FragmentParams
             fragment={selected}
             placement={placements[selected.id]}
@@ -509,6 +758,25 @@ function Workspace() {
                 canUndo={strokePast.length > 0}
                 onClear={() => clearFragmentStrokes(selected.id)}
                 onExport={exportMarkers}
+              />
+            )}
+            {registrationMode && (
+              <RegistrationPanel
+                fragments={fragments}
+                controlPoints={controlPoints}
+                regPair={regPair}
+                setRegPair={setRegPair}
+                onRemoveControlPoint={removeControlPoint}
+                mode={mode}
+                setMode={setMode}
+                onRun={runRegistration}
+                onApply={applyPending}
+                onReject={rejectPending}
+                onReset={resetRegistration}
+                hasPending={!!pendingPlacements}
+                quality={regQuality}
+                residual={regResidual}
+                matches={matches}
               />
             )}
             <FragmentParams
@@ -695,6 +963,13 @@ function Canvas({
   eraseNear,
   snapshotStrokes,
   matchedColorsByFragment,
+  registrationMode,
+  regMode,
+  regPair,
+  controlPoints,
+  addControlPoint,
+  removeControlPoint,
+  pendingPlacements,
 }: {
   fragments: Fragment[];
   selectedId: string;
@@ -717,6 +992,13 @@ function Canvas({
   eraseNear: (fid: string, x: number, y: number, radius: number) => void;
   snapshotStrokes: () => void;
   matchedColorsByFragment: Map<string, Set<string>>;
+  registrationMode: boolean;
+  regMode: "auto" | "semi" | "manual";
+  regPair: [string, string] | null;
+  controlPoints: ControlPoint[];
+  addControlPoint: (fid: string, x: number, y: number) => void;
+  removeControlPoint: (id: string) => void;
+  pendingPlacements: Record<string, Placement> | null;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -870,6 +1152,18 @@ function Canvas({
           Режим маркеров: {brushTool === "brush" ? "кисть" : "ластик"} · {brushSize}px
         </div>
       )}
+      {registrationMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 rounded-full bg-panel border border-border shadow-panel px-3 py-1 text-[11px] font-medium text-muted-foreground flex items-center gap-2 pointer-events-none max-w-[92vw]">
+          <Crosshair className="h-3 w-3 text-primary" />
+          {regMode === "manual"
+            ? "Ручной режим: тяните фрагмент, используйте маркеры трансформации."
+            : regMode === "semi"
+              ? regPair
+                ? `Полуавто: ставьте точки на ${regPair[0]} и ${regPair[1]} поочерёдно.`
+                : "Полуавто: выберите пару фрагментов в правой панели."
+              : "Авто: нажмите «Выполнить регистрацию» для расчёта."}
+        </div>
+      )}
 
       {/* Fragments layer */}
       <div
@@ -880,15 +1174,32 @@ function Canvas({
 
         {fragments.map((f) => {
           const isSel = f.id === selectedId;
-          const p = placements[f.id];
+          const p = (pendingPlacements ?? placements)[f.id];
           const matchedColors = matchedColorsByFragment.get(f.id);
           const fragStrokes = strokes.filter((s) => s.fragmentId === f.id);
+          const fragCPs = controlPoints.filter((cp) => cp.fragmentId === f.id);
+          const isInPair = regPair?.includes(f.id) ?? false;
+          const cpAddMode = registrationMode && regMode === "semi" && isInPair;
+          const isPreview = !!pendingPlacements && placements[f.id] !== p;
+          const onFragmentPointerDown = paintMode
+            ? startPaint(f.id)
+            : cpAddMode
+              ? (e: ReactPointerEvent) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onSelect(f.id);
+                  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const lx = Math.max(0, Math.min(100, ((e.clientX - box.left) / box.width) * 100));
+                  const ly = Math.max(0, Math.min(100, ((e.clientY - box.top) / box.height) * 100));
+                  addControlPoint(f.id, lx, ly);
+                }
+              : startDrag(f.id);
           return (
             <div
               key={f.id}
               data-fragment={f.id}
-              onPointerDown={paintMode ? startPaint(f.id) : startDrag(f.id)}
-              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : "cursor-move"}`}
+              onPointerDown={onFragmentPointerDown}
+              className={`absolute group touch-none select-none ${paintMode ? (brushTool === "eraser" ? "cursor-cell" : "cursor-crosshair") : cpAddMode ? "cursor-crosshair" : "cursor-move"}`}
               style={{
                 left: `${p.x}%`,
                 top: `${p.y}%`,
@@ -902,8 +1213,12 @@ function Canvas({
                 <div
                   className="aspect-[3/2] rounded-sm shadow-panel overflow-hidden relative"
                   style={{
-                    outline: isSel ? "2px solid var(--primary)" : "none",
-                    outlineOffset: isSel ? 2 : 0,
+                    outline: isPreview
+                      ? "2px dashed color-mix(in oklch, var(--primary) 80%, transparent)"
+                      : isInPair && registrationMode
+                        ? "2px solid color-mix(in oklch, var(--primary) 70%, transparent)"
+                        : isSel ? "2px solid var(--primary)" : "none",
+                    outlineOffset: isSel || isPreview || isInPair ? 2 : 0,
                   }}
                 >
                   <FragmentImage
@@ -964,9 +1279,40 @@ function Canvas({
                       })}
                     </svg>
                   )}
+
+                  {/* Control points overlay */}
+                  {registrationMode && fragCPs.length > 0 && (
+                    <svg
+                      className="absolute inset-0 w-full h-full"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {fragCPs.map((cp) => {
+                        const color = cpColor(cp.pairId);
+                        const flipTx = p.flip ? `translate(${cp.x},${cp.y}) scale(-1,1) translate(${-cp.x},${-cp.y})` : "";
+                        return (
+                          <g key={cp.id} transform={flipTx}>
+                            <circle cx={cp.x} cy={cp.y} r={2.2} fill={color} stroke="#fff" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+                            <text
+                              x={cp.x}
+                              y={cp.y + 0.8}
+                              fill="#fff"
+                              fontSize={2.4}
+                              fontWeight={700}
+                              textAnchor="middle"
+                              style={{ paintOrder: "stroke", stroke: color, strokeWidth: 0.2 } as React.CSSProperties}
+                            >
+                              {cp.pairId}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
                 </div>
 
-                {isSel && !paintMode && (
+                {isSel && !paintMode && !registrationMode && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
                     onRotate={startRotate(f.id)}
@@ -1550,5 +1896,261 @@ function MarkerTools({
     </div>
   );
 }
+
+function RegistrationPanel({
+  fragments,
+  controlPoints,
+  regPair,
+  setRegPair,
+  onRemoveControlPoint,
+  mode,
+  setMode,
+  onRun,
+  onApply,
+  onReject,
+  onReset,
+  hasPending,
+  quality,
+  residual,
+  matches,
+}: {
+  fragments: Fragment[];
+  controlPoints: ControlPoint[];
+  regPair: [string, string] | null;
+  setRegPair: (p: [string, string] | null) => void;
+  onRemoveControlPoint: (id: string) => void;
+  mode: "auto" | "semi" | "manual";
+  setMode: (m: "auto" | "semi" | "manual") => void;
+  onRun: () => void;
+  onApply: () => void;
+  onReject: () => void;
+  onReset: () => void;
+  hasPending: boolean;
+  quality: RegQuality | null;
+  residual: number | null;
+  matches: { a: string; b: string; colors: string[] }[];
+}) {
+  const pairIds = regPair
+    ? [
+        ...new Set(
+          controlPoints
+            .filter((cp) => cp.fragmentId === regPair[0] || cp.fragmentId === regPair[1])
+            .map((cp) => cp.pairId),
+        ),
+      ].sort((a, b) => a - b)
+    : [];
+  const completePairs = pairIds.filter((pid) => {
+    if (!regPair) return false;
+    const hasA = controlPoints.some((cp) => cp.pairId === pid && cp.fragmentId === regPair[0]);
+    const hasB = controlPoints.some((cp) => cp.pairId === pid && cp.fragmentId === regPair[1]);
+    return hasA && hasB;
+  });
+
+  const qualityLabel: Record<RegQuality, { label: string; cls: string }> = {
+    good: { label: "Хорошо", cls: "text-emerald-600 bg-emerald-500/10 border-emerald-500/30" },
+    check: { label: "Требует проверки", cls: "text-amber-600 bg-amber-500/10 border-amber-500/30" },
+    bad: { label: "Плохо", cls: "text-red-600 bg-red-500/10 border-red-500/30" },
+  };
+
+  // Suggested pairs = marker matches + all combinations up to a limit.
+  const suggested = matches.slice(0, 6);
+
+  return (
+    <div className="p-4 space-y-4 border-b border-border bg-accent/30">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Регистрация</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Совмещение фрагментов в едином масштабе.
+          </p>
+        </div>
+        <Crosshair className="h-5 w-5 text-primary" />
+      </div>
+
+      {/* Mode selector */}
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1 text-xs font-medium">
+        {[
+          { id: "auto", label: "Авто" },
+          { id: "semi", label: "Полуавто" },
+          { id: "manual", label: "Ручной" },
+        ].map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setMode(m.id as "auto" | "semi" | "manual")}
+            className={`py-1.5 rounded-md transition-colors ${
+              mode === m.id ? "bg-panel shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "manual" && (
+        <div className="rounded-lg border border-border bg-panel p-2.5 text-[11px] text-muted-foreground">
+          Тяните фрагмент за корпус, за угловой маркер — масштаб, за верхний — поворот. Все изменения сохраняются автоматически.
+        </div>
+      )}
+
+      {mode === "semi" && (
+        <div className="space-y-2.5">
+          <div className="text-xs text-muted-foreground">Пара фрагментов</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <select
+              value={regPair?.[0] ?? ""}
+              onChange={(e) => {
+                const a = e.target.value;
+                const b = regPair?.[1] ?? fragments.find((f) => f.id !== a)?.id ?? "";
+                if (a && b && a !== b) setRegPair([a, b]);
+              }}
+              className="h-8 text-xs rounded-md border border-border bg-panel px-2"
+            >
+              <option value="">Фрагмент A…</option>
+              {fragments.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+            <select
+              value={regPair?.[1] ?? ""}
+              onChange={(e) => {
+                const b = e.target.value;
+                const a = regPair?.[0] ?? fragments.find((f) => f.id !== b)?.id ?? "";
+                if (a && b && a !== b) setRegPair([a, b]);
+              }}
+              className="h-8 text-xs rounded-md border border-border bg-panel px-2"
+            >
+              <option value="">Фрагмент B…</option>
+              {fragments.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {suggested.length > 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              <span className="mr-1">Предложены по маркерам:</span>
+              <span className="flex flex-wrap gap-1 mt-1">
+                {suggested.map((m, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setRegPair([m.a, m.b])}
+                    className="px-1.5 py-0.5 rounded border border-border bg-panel hover:border-primary text-foreground"
+                  >
+                    {m.a} ↔ {m.b}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+
+          {regPair && (
+            <div className="rounded-lg border border-border bg-panel p-2.5 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Пары точек</span>
+                <span className="font-medium tabular-nums">{completePairs.length} / {pairIds.length}</span>
+              </div>
+              {pairIds.length === 0 ? (
+                <div className="text-[11px] text-muted-foreground/80">
+                  Кликайте на {regPair[0]}, затем на {regPair[1]} — так добавляются пары.
+                </div>
+              ) : (
+                <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                  {pairIds.map((pid) => {
+                    const cps = controlPoints.filter(
+                      (cp) => cp.pairId === pid && (cp.fragmentId === regPair[0] || cp.fragmentId === regPair[1]),
+                    );
+                    return (
+                      <li key={pid} className="flex items-center gap-1.5 text-[11px]">
+                        <span
+                          className="h-4 w-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: cpColor(pid) }}
+                        >
+                          {pid}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {cps.length === 2 ? "полная" : `ожидает ${cps[0]?.fragmentId === regPair[0] ? regPair[1] : regPair[0]}`}
+                        </span>
+                        <button
+                          onClick={() => cps.forEach((c) => onRemoveControlPoint(c.id))}
+                          className="ml-auto text-muted-foreground hover:text-red-500"
+                          aria-label="Удалить пару"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === "auto" && (
+        <div className="rounded-lg border border-border bg-panel p-2.5 text-[11px] text-muted-foreground space-y-1">
+          <div>Использует нанесённые маркеры туши и совпадения цветов на краях.</div>
+          <div className="flex items-center justify-between text-foreground">
+            <span>Найдено пар</span>
+            <span className="font-medium tabular-nums">{matches.length}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      {mode !== "manual" && (
+        <Button
+          className="w-full h-9 gap-2"
+          onClick={onRun}
+        >
+          <Crosshair className="h-4 w-4" /> Выполнить регистрацию
+        </Button>
+      )}
+
+      {hasPending && (
+        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+          {quality && (
+            <div className={`text-[11px] font-medium px-2 py-1 rounded border inline-block ${qualityLabel[quality].cls}`}>
+              Качество: {qualityLabel[quality].label}
+              {residual !== null && <span className="ml-1 opacity-70">(RMS {residual.toFixed(2)}%)</span>}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-1.5">
+            <Button size="sm" className="h-8 gap-1 text-xs" onClick={onApply}>
+              Принять
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={onReject}>
+              Отклонить
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Предпросмотр показан пунктиром. Регистрация только рассчитывает положение и не изменяет исходные изображения.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs"
+          onClick={onApply}
+          disabled={!hasPending}
+        >
+          Применить трансформации
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1 text-xs"
+          onClick={onReset}
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Сбросить регистрацию
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 
 
