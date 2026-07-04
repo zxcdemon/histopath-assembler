@@ -68,15 +68,19 @@ export function MascotAssistant({ onOpenHelp }: { onOpenHelp?: () => void } = {}
           {status ? (
             <div className="mt-2 text-sm text-muted-foreground">{status}</div>
           ) : (
-            <div className="mt-3.5 flex gap-2">
+            <div className="mt-3.5 flex flex-wrap gap-2">
               <Button onClick={handleAuto} className="h-9 px-4 text-sm">
                 Сделай сам
               </Button>
               <Button variant="outline" onClick={handleSuggest} className="h-9 px-4 text-sm">
                 Предложи
               </Button>
+              <Button variant="ghost" onClick={handleHelp} className="h-9 px-3 text-sm">
+                Помощь
+              </Button>
             </div>
           )}
+
         </div>
 
         {/* Mascot overflows to the right and top of the card */}
