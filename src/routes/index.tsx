@@ -406,14 +406,23 @@ function Canvas({
                     outlineOffset: isSel ? 2 : 0,
                   }}
                 >
-                  <FragmentImage fragment={f} className="w-full h-full pointer-events-none" />
+                  <FragmentImage
+                    fragment={f}
+                    className="w-full h-full pointer-events-none"
+                    style={{ transform: p.flip ? "scaleX(-1)" : undefined }}
+                  />
                 </div>
                 {isSel && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
                     onRotate={startRotate(f.id)}
+                    onFlip={(e) => {
+                      e.stopPropagation();
+                      updatePlacement(f.id, { flip: !p.flip });
+                    }}
                   />
                 )}
+
                 <span className="absolute -bottom-5 left-0 text-[10px] px-1.5 py-0.5 rounded bg-panel/90 border border-border text-muted-foreground pointer-events-none">
                   {f.label}
                 </span>
