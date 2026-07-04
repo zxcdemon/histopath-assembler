@@ -32,13 +32,13 @@ import {
   FlipHorizontal,
 
   ChevronUp,
-
-
+  EyeOff,
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
 import { MascotAssistant } from "@/components/MascotAssistant";
