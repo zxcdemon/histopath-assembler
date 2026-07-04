@@ -174,6 +174,87 @@ function computeSimilarity(
 
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
+// ============= Preview / seam analysis =============
+export type PreviewLayers = {
+  fragments: boolean;
+  borders: boolean;
+  ink: boolean;
+  cps: boolean;
+  seams: boolean;
+  overlaps: boolean;
+  warnings: boolean;
+};
+export type PreviewCompare = "current" | "initial" | "registered";
+export type SeamKind = "good" | "gap" | "overlap" | "rotation";
+export type Seam = {
+  id: string;
+  a: string;
+  b: string;
+  kind: SeamKind;
+  overlap: number; // % of smaller box
+  gap: number; // % distance edge-to-edge
+  rotDiff: number; // degrees
+  cx: number; // seam label position (canvas %)
+  cy: number;
+};
+
+// Axis-aligned bounding box of a rotated 3:2 fragment placement.
+function placementAABB(p: Placement) {
+  const w = p.w;
+  const h = p.w * (2 / 3);
+  const cx = p.x + w / 2;
+  const cy = p.y + h / 2;
+  const rad = (p.rot * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const bw = w * cos + h * sin;
+  const bh = w * sin + h * cos;
+  return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh, cx, cy };
+}
+
+function computeSeams(fragments: Fragment[], placements: Record<string, Placement>): Seam[] {
+  const seams: Seam[] = [];
+  const boxes = fragments.map((f) => ({ id: f.id, box: placementAABB(placements[f.id]), rot: placements[f.id].rot }));
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const A = boxes[i], B = boxes[j];
+      const ix = Math.max(0, Math.min(A.box.x + A.box.w, B.box.x + B.box.w) - Math.max(A.box.x, B.box.x));
+      const iy = Math.max(0, Math.min(A.box.y + A.box.h, B.box.y + B.box.h) - Math.max(A.box.y, B.box.y));
+      const inter = ix * iy;
+      const smaller = Math.min(A.box.w * A.box.h, B.box.w * B.box.h) || 1;
+      const overlap = (inter / smaller) * 100;
+      const dx = Math.max(0, Math.max(A.box.x - (B.box.x + B.box.w), B.box.x - (A.box.x + A.box.w)));
+      const dy = Math.max(0, Math.max(A.box.y - (B.box.y + B.box.h), B.box.y - (A.box.y + A.box.h)));
+      const gap = Math.hypot(dx, dy);
+      const rotDiff = Math.abs(((A.rot - B.rot + 540) % 360) - 180);
+      // Only surface pairs that are actually near / touching.
+      if (overlap === 0 && gap > 8) continue;
+      let kind: SeamKind = "good";
+      if (overlap > 12) kind = "overlap";
+      else if (gap > 2.5) kind = "gap";
+      else if (rotDiff > 20) kind = "rotation";
+      const cx = (A.box.cx + B.box.cx) / 2;
+      const cy = (A.box.cy + B.box.cy) / 2;
+      seams.push({ id: `${A.id}-${B.id}`, a: A.id, b: B.id, kind, overlap, gap, rotDiff, cx, cy });
+    }
+  }
+  return seams;
+}
+
+const SEAM_COLOR: Record<SeamKind, string> = {
+  good: "#22c55e",
+  gap: "#eab308",
+  overlap: "#ef4444",
+  rotation: "#f97316",
+};
+const SEAM_LABEL: Record<SeamKind, string> = {
+  good: "Хороший стык",
+  gap: "Зазор",
+  overlap: "Наложение",
+  rotation: "Сильный поворот",
+};
+
+
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
   const [mode, setMode] = useState<"auto" | "semi" | "manual">("auto");
