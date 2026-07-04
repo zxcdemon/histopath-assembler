@@ -698,6 +698,54 @@ function Workspace() {
     toast("Результат отклонён");
   }, []);
 
+  // Assistant: compute proposal and show as ghost overlay only. Real placements untouched.
+  const assistantShowSuggestion = useCallback((): { ok: boolean; error?: string } => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки. Можно показать примерную подсказку по текущему макету."
+            : "Не удалось построить автоматическую раскладку. Попробуйте добавить маркеры туши или контрольные точки.";
+      return { ok: false, error: msg };
+    }
+    setGhostPlacements(res.placements);
+    return { ok: true };
+  }, [computeAutoProposal]);
+
+  const assistantApplySuggestion = useCallback(() => {
+    if (!ghostPlacements) return;
+    commitHistory();
+    setPlacements(ghostPlacements);
+    setGhostPlacements(null);
+    toast.success("Предложение применено к фрагментам");
+  }, [ghostPlacements, commitHistory]);
+
+  const assistantHideSuggestion = useCallback(() => {
+    setGhostPlacements(null);
+  }, []);
+
+  // Assistant: auto-assemble → set pending preview (canvas already renders pending).
+  const assistantRunAuto = useCallback((): { ok: boolean; error?: string } => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки."
+            : "Не удалось построить автоматическую раскладку. Попробуйте добавить маркеры туши или контрольные точки.";
+      return { ok: false, error: msg };
+    }
+    setGhostPlacements(null);
+    setPendingPlacements(res.placements);
+    setRegQuality(res.quality ?? "check");
+    setRegResidual(null);
+    return { ok: true };
+  }, [computeAutoProposal]);
+
+
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
     setPlacements((prev) => {
