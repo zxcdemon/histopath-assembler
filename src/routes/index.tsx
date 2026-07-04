@@ -64,6 +64,8 @@ const INK_MARKERS = [
   { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4 },
 ];
 
+type Placement = { x: number; y: number; w: number; rot: number };
+
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
   const [mode, setMode] = useState<"auto" | "semi" | "manual">("auto");
@@ -73,11 +75,18 @@ function Workspace() {
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
   const [section, setSection] = useState<string>("layout");
+  const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
+    Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])),
+  );
+
+  const updatePlacement = (id: string, patch: Partial<Placement>) =>
+    setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
     [selectedId],
   );
+
 
   const handleSection = (id: string) => {
     setSection(id);
