@@ -439,6 +439,10 @@ function Canvas({
   setZoom,
   placements,
   updatePlacement,
+  commitHistory,
+  inkOn,
+  inkLevels,
+  inkVisible,
 }: {
   selectedId: string;
   onSelect: (id: string) => void;
@@ -446,7 +450,12 @@ function Canvas({
   setZoom: (n: number) => void;
   placements: Record<string, Placement>;
   updatePlacement: (id: string, patch: Partial<Placement>) => void;
+  commitHistory: () => void;
+  inkOn: boolean;
+  inkLevels: InkLevels;
+  inkVisible: InkVisibility;
 }) {
+
   const layerRef = useRef<HTMLDivElement | null>(null);
 
   const startDrag = (id: string) => (e: ReactPointerEvent) => {
