@@ -1281,7 +1281,39 @@ function Canvas({
                   )}
                 </div>
 
-                {isSel && !paintMode && (
+                  {/* Control points overlay */}
+                  {registrationMode && fragCPs.length > 0 && (
+                    <svg
+                      className="absolute inset-0 w-full h-full"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {fragCPs.map((cp) => {
+                        const color = cpColor(cp.pairId);
+                        const flipTx = p.flip ? `translate(${cp.x},${cp.y}) scale(-1,1) translate(${-cp.x},${-cp.y})` : "";
+                        return (
+                          <g key={cp.id} transform={flipTx}>
+                            <circle cx={cp.x} cy={cp.y} r={2.2} fill={color} stroke="#fff" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+                            <text
+                              x={cp.x}
+                              y={cp.y + 0.8}
+                              fill="#fff"
+                              fontSize={2.4}
+                              fontWeight={700}
+                              textAnchor="middle"
+                              style={{ paintOrder: "stroke", stroke: color, strokeWidth: 0.2 } as React.CSSProperties}
+                            >
+                              {cp.pairId}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
+                </div>
+
+                {isSel && !paintMode && !registrationMode && (
                   <SelectionHandles
                     onResize={startResize(f.id)}
                     onRotate={startRotate(f.id)}
