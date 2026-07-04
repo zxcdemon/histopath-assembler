@@ -413,7 +413,12 @@ function Canvas({
       </div>
 
       {/* Fragments layer */}
-      <div ref={layerRef} className="absolute inset-6 md:inset-10">
+      <div
+        ref={layerRef}
+        className="absolute inset-6 md:inset-10 transition-transform"
+        style={{ transform: `scale(${zoom / 100})`, transformOrigin: "center center" }}
+      >
+
         {FRAGMENTS.map((f) => {
           const isSel = f.id === selectedId;
           const p = placements[f.id];
