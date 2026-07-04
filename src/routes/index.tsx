@@ -67,12 +67,15 @@ const INK_MARKERS = [
 ];
 
 type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean };
+type InkLevels = Record<string, number>;
+
+const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
   const [mode, setMode] = useState<"auto" | "semi" | "manual">("auto");
   const [inkOn, setInkOn] = useState(true);
-  const [zoom, setZoom] = useState(28);
+  const [zoom, setZoom] = useState(100);
   const [navOpen, setNavOpen] = useState(false);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
@@ -80,9 +83,27 @@ function Workspace() {
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(FRAGMENTS.map((f) => [f.id, { ...f.place }])),
   );
+  const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
+    const init: InkLevels = {};
+    FRAGMENTS.forEach((f) =>
+      INK_MARKERS.forEach((m) => (init[inkKey(f.id, m.label)] = 66)),
+    );
+    return init;
+  });
 
   const updatePlacement = (id: string, patch: Partial<Placement>) =>
     setPlacements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+
+  const resetPlacement = (id: string) => {
+    const src = FRAGMENTS.find((f) => f.id === id);
+    if (src) {
+      setPlacements((prev) => ({ ...prev, [id]: { ...src.place } }));
+      toast("Трансформации сброшены", { description: `Фрагмент ${id}` });
+    }
+  };
+
+  const setInkLevel = (fid: string, label: string, value: number) =>
+    setInkLevels((prev) => ({ ...prev, [inkKey(fid, label)]: value }));
 
   const selected = useMemo(
     () => FRAGMENTS.find((f) => f.id === selectedId) ?? FRAGMENTS[0],
