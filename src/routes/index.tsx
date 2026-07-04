@@ -59,6 +59,7 @@ import {
   strokesToMarkers,
   placementsToTransforms,
   transformsToPlacements,
+  controlPointsToBackend,
 } from "@/lib/backend-hooks";
 import { ServerCrash, ServerCog, Wand2 } from "lucide-react";
 
@@ -295,6 +296,12 @@ function Workspace() {
 
   // Backend integration (Python/FastAPI service under backend/).
   const be = useBackend(fragments);
+  const backendAvailable = be.backendAvailable;
+  const backendCaseId = be.backendCaseId;
+  const backendError = be.backendError;
+  const isUploading = be.isUploading;
+  const isRegistering = be.isRegistering;
+  const isExporting = be.isExporting;
   const [backendMetrics, setBackendMetrics] = useState<
     import("@/lib/backend-hooks").AssemblyMetrics | null
   >(null);
@@ -537,16 +544,19 @@ function Workspace() {
       toast("Экспорт с предупреждениями", { description: problems.join(" · ") });
     }
 
+    const hasMrxs = fragments.some((fragment) => fragment.kind === "mrxs");
+
     // Real export via backend when available (PNG / OME-TIFF / BigTIFF).
-    if (be.backendCaseId) {
+    if (backendCaseId) {
       be.setExporting(true);
       const rawFmt = settings.export?.format ?? "ome-tiff";
-      const fmt: "png" | "ome-tiff" | "bigtiff" = rawFmt === "big-tiff" ? "bigtiff" : "ome-tiff";
+      const fmt: "png" | "ome-tiff" | "bigtiff" =
+        rawFmt === "png" ? "png" : rawFmt === "big-tiff" ? "bigtiff" : "ome-tiff";
       backend
-        .exportBlob(be.backendCaseId, {
+        .exportBlob(backendCaseId, {
           transforms: placementsToTransforms(placements, fragments),
-          markers: strokesToMarkers(strokes),
-          controlPoints: [],
+          markers: strokesToMarkers(strokes, fragments),
+          controlPoints: controlPointsToBackend(controlPoints, fragments),
           metrics: backendMetrics ?? undefined,
           format: fmt,
         })
@@ -554,7 +564,7 @@ function Workspace() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `histotopogram-${be.backendCaseId}.ome.tif`;
+          a.download = `histotopogram-${backendCaseId}.${fmt === "png" ? "png" : fmt === "bigtiff" ? "bigtiff.tif" : "ome.tif"}`;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -566,12 +576,17 @@ function Workspace() {
       return;
     }
 
+    if (hasMrxs) {
+      toast.error("Экспорт .mrxs доступен только при запущенном backend");
+      return;
+    }
+
     if (!problems.length) {
       toast("Готово к экспорту", {
         description: "Backend не подключён — доступен только просмотр сборки в браузере.",
       });
     }
-  }, [previewStatus, pendingPlacements, be, settings, placements, fragments, strokes, backendMetrics]);
+  }, [previewStatus, pendingPlacements, backendCaseId, be, settings, placements, fragments, strokes, controlPoints, backendMetrics]);
 
 
   // ============= Assembly metrics (real-time) =============
@@ -892,11 +907,11 @@ function Workspace() {
     commitHistory();
     setPlacements(pendingPlacements);
     // Persist transforms to backend so the case reflects the applied layout.
-    if (be.backendCaseId) {
+    if (backendCaseId) {
       const t = placementsToTransforms(pendingPlacements, fragments);
       if (Object.keys(t).length) {
         backend
-          .setTransforms(be.backendCaseId, t)
+          .setTransforms(backendCaseId, t)
           .catch((e) => console.warn("setTransforms failed", e));
       }
     }
@@ -904,7 +919,7 @@ function Workspace() {
     setRegQuality(null);
     setRegResidual(null);
     toast("Трансформации применены");
-  }, [pendingPlacements, commitHistory, be.backendCaseId, fragments]);
+  }, [pendingPlacements, commitHistory, backendCaseId, fragments]);
 
 
   const rejectPending = useCallback(() => {
@@ -928,12 +943,12 @@ function Workspace() {
     }
     setGhostPlacements(res.placements);
     // Refine via backend if it's available for this case.
-    if (be.backendCaseId) {
+    if (backendCaseId) {
       be.setRegistering(true);
       backend
-        .register(be.backendCaseId, {
-          markers: strokesToMarkers(strokes),
-          controlPoints: [],
+        .register(backendCaseId, {
+          markers: strokesToMarkers(strokes, fragments),
+          controlPoints: controlPointsToBackend(controlPoints, fragments),
           currentTransforms: placementsToTransforms(placements, fragments),
         })
         .then((r) => {
@@ -946,7 +961,7 @@ function Workspace() {
         .finally(() => be.setRegistering(false));
     }
     return { ok: true };
-  }, [computeAutoProposal, be, strokes, placements, fragments]);
+  }, [computeAutoProposal, backendCaseId, be, strokes, controlPoints, placements, fragments]);
 
   const assistantApplySuggestion = useCallback(() => {
     if (!ghostPlacements) return;
@@ -977,12 +992,12 @@ function Workspace() {
     setRegQuality(res.quality ?? "check");
     setRegResidual(null);
     // Refine with backend if available; overrides pending with server proposal.
-    if (be.backendCaseId) {
+    if (backendCaseId) {
       be.setRegistering(true);
       backend
-        .register(be.backendCaseId, {
-          markers: strokesToMarkers(strokes),
-          controlPoints: [],
+        .register(backendCaseId, {
+          markers: strokesToMarkers(strokes, fragments),
+          controlPoints: controlPointsToBackend(controlPoints, fragments),
           currentTransforms: placementsToTransforms(placements, fragments),
         })
         .then((r) => {
@@ -997,7 +1012,7 @@ function Workspace() {
         .finally(() => be.setRegistering(false));
     }
     return { ok: true };
-  }, [computeAutoProposal, be, strokes, placements, fragments]);
+  }, [computeAutoProposal, backendCaseId, be, strokes, controlPoints, placements, fragments]);
 
 
   const importFragments = (newFragments: Fragment[]) => {
@@ -1138,29 +1153,30 @@ function Workspace() {
 
         <main className="flex-1 flex flex-col min-w-0 relative">
           {/* Backend status banner */}
-          {be.backendConfigured && (
+          {backendAvailable !== null && (
             <div
               className={`flex items-center gap-2 px-3 py-1.5 text-xs border-b ${
-                be.backendAvailable === true
+                backendAvailable === true
                   ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : be.backendAvailable === false
+                  : backendAvailable === false
                   ? "border-amber-200 bg-amber-50 text-amber-900"
                   : "border-border bg-secondary/40 text-muted-foreground"
               }`}
             >
-              {be.backendAvailable === true ? (
+              {backendAvailable === true ? (
                 <>
                   <ServerCog className="h-3.5 w-3.5" />
                   <span>
-                    Backend подключён{be.backendCaseId ? ` · case ${be.backendCaseId}` : ""}
-                    {be.isRegistering ? " · регистрация…" : ""}
-                    {be.isExporting ? " · экспорт…" : ""}
+                    Backend подключён{backendCaseId ? ` · case ${backendCaseId}` : ""}
+                    {isUploading ? " · загрузка…" : ""}
+                    {isRegistering ? " · регистрация…" : ""}
+                    {isExporting ? " · экспорт…" : ""}
                   </span>
                 </>
-              ) : be.backendAvailable === false ? (
+              ) : backendAvailable === false ? (
                 <>
                   <ServerCrash className="h-3.5 w-3.5" />
-                  <span>Модуль .mrxs недоступен. Запустите backend-сервис (см. README).</span>
+                  <span title={backendError ?? undefined}>Модуль .mrxs недоступен. Запустите backend-сервис</span>
                 </>
               ) : (
                 <span>Проверяем доступность backend…</span>
@@ -1181,7 +1197,7 @@ function Workspace() {
                     // Trigger a metrics refresh via register call.
                     const reg = await backend.register(caseId, {
                       markers: r.markers,
-                      controlPoints: [],
+                      controlPoints: controlPointsToBackend(controlPoints, fragments),
                       currentTransforms: placementsToTransforms(placements, fragments),
                     });
                     setBackendMetrics(reg.metrics);
@@ -1491,6 +1507,7 @@ function Workspace() {
         onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
         existingIds={fragments.map((f) => f.id)}
         onImport={importFragments}
+        onBusyChange={be.setUploading}
       />
       <SettingsPanel
         open={settingsOpen}

@@ -1,9 +1,11 @@
-"""Ink-marker detection and transform proposal.
-
-This is a pragmatic first cut. It does NOT do full non-rigid registration;
-it produces rigid translations + rotations that align paired ink markers
-(and any control points) between fragments.
 """
+Ink-marker detection and transform proposal.
+
+This is a pragmatic first cut. It does NOT do full non-rigid registration; it
+produces rigid layout proposals that align paired ink markers and explicit
+control points between fragments.
+"""
+
 from __future__ import annotations
 
 import math
@@ -15,11 +17,11 @@ from PIL import Image
 
 # Reference ink colours (approx BGR/RGB centres). We match in HSV.
 INK_COLORS = {
-    "red":    (355, 0.55, 0.55),
-    "blue":   (215, 0.60, 0.55),
-    "green":  (130, 0.50, 0.45),
-    "yellow": (55,  0.65, 0.75),
-    "black":  (0,   0.00, 0.10),
+    "red": (355, 0.55, 0.55),
+    "blue": (215, 0.60, 0.55),
+    "green": (130, 0.50, 0.45),
+    "yellow": (55, 0.65, 0.75),
+    "black": (0, 0.00, 0.10),
 }
 
 
@@ -31,7 +33,11 @@ def _edge_of(x: float, y: float, w: float, h: float) -> str:
     return "top" if y < h - y else "bottom"
 
 
-def detect_ink_markers(path: Path, fragment_id: str, max_side: int = 512) -> list[dict[str, Any]]:
+def detect_ink_markers(
+    path: Path,
+    fragment_id: str,
+    max_side: int = 512,
+) -> list[dict[str, Any]]:
     """Detect coloured ink strokes near the edges of a fragment."""
     with Image.open(path) as im:
         im = im.convert("RGB")
@@ -81,16 +87,18 @@ def detect_ink_markers(path: Path, fragment_id: str, max_side: int = 512) -> lis
         ys, xs = np.where(mask)
         cx, cy = xs.mean() / w, ys.mean() / h
         length = float(math.sqrt(xs.var() + ys.var())) / max(w, h)
-        markers.append({
-            "id": f"{fragment_id}:{name}",
-            "fragmentId": fragment_id,
-            "color": name,
-            "edge": _edge_of(cx * w, cy * h, w, h),
-            "x": float(cx),
-            "y": float(cy),
-            "length": length,
-            "count": int(mask.sum()),
-        })
+        markers.append(
+            {
+                "id": f"{fragment_id}:{name}",
+                "fragmentId": fragment_id,
+                "color": name,
+                "edge": _edge_of(cx * w, cy * h, w, h),
+                "x": float(cx),
+                "y": float(cy),
+                "length": length,
+                "count": int(mask.sum()),
+            }
+        )
 
     return markers
 
@@ -114,10 +122,12 @@ def _score_pair(a: dict[str, Any], b: dict[str, Any]) -> float:
     return max(0.0, 1.0 - length_penalty * 2.5)
 
 
-def _pair_markers(markers: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any], float]]:
-    pairs: list[tuple[dict, dict, float]] = []
+def _pair_markers(
+    markers: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any], float]]:
+    pairs: list[tuple[dict[str, Any], dict[str, Any], float]] = []
     used: set[str] = set()
-    ranked = []
+    ranked: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
     for i, a in enumerate(markers):
         for b in markers[i + 1:]:
             s = _score_pair(a, b)
@@ -133,6 +143,22 @@ def _pair_markers(markers: list[dict[str, Any]]) -> list[tuple[dict[str, Any], d
     return pairs
 
 
+def _default_transform(x: float = 0.0, y: float = 0.0) -> dict[str, Any]:
+    return {"x": x, "y": y, "rot": 0.0, "scale": 1.0}
+
+
+def _world_width(fragment: dict[str, Any], transform: dict[str, Any]) -> float:
+    return float(fragment.get("width", 1000)) * float(transform.get("scale", 1.0))
+
+
+def _world_height(fragment: dict[str, Any], transform: dict[str, Any]) -> float:
+    return float(fragment.get("height", 1000)) * float(transform.get("scale", 1.0))
+
+
+def _fragment_by_id(fragments: list[dict[str, Any]], fragment_id: str) -> dict[str, Any] | None:
+    return next((fragment for fragment in fragments if fragment["id"] == fragment_id), None)
+
+
 # ---- Transform proposal ----
 
 def propose_transforms(
@@ -141,8 +167,7 @@ def propose_transforms(
     control_points: list[dict[str, Any]],
     current: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Very simple rigid layout: keep the first fragment fixed and translate
-    others so that their matched markers/CPs align."""
+    """Keep the first fragment fixed and translate others to align points."""
     if not fragments:
         return {}
 
@@ -150,38 +175,45 @@ def propose_transforms(
     anchor = fragments[0]["id"]
     out[anchor] = current.get(anchor) if current else None
     if not out[anchor]:
-        out[anchor] = {"x": 0.0, "y": 0.0, "rot": 0.0, "scale": 1.0}
+        out[anchor] = _default_transform()
 
     # Default: tile horizontally using natural widths.
-    x_cursor = out[anchor]["x"] + fragments[0].get("width", 1000)
+    x_cursor = float(out[anchor]["x"]) + _world_width(fragments[0], out[anchor])
     for f in fragments[1:]:
-        out[f["id"]] = {"x": x_cursor, "y": 0.0, "rot": 0.0, "scale": 1.0}
-        x_cursor += f.get("width", 1000)
+        existing = current.get(f["id"]) if current else None
+        out[f["id"]] = dict(existing) if existing else _default_transform(x_cursor, 0.0)
+        x_cursor += _world_width(f, out[f["id"]])
 
     # Refine with paired markers: translate B so its marker sits next to A's.
     pairs = _pair_markers(markers)
     for a, b, _ in pairs:
-        fa = next((f for f in fragments if f["id"] == a["fragmentId"]), None)
-        fb = next((f for f in fragments if f["id"] == b["fragmentId"]), None)
+        fa = _fragment_by_id(fragments, a["fragmentId"])
+        fb = _fragment_by_id(fragments, b["fragmentId"])
         if not fa or not fb:
             continue
-        ax = out[a["fragmentId"]]["x"] + a["x"] * fa.get("width", 1000)
-        ay = out[a["fragmentId"]]["y"] + a["y"] * fa.get("height", 1000)
-        bxf = b["x"] * fb.get("width", 1000)
-        byf = b["y"] * fb.get("height", 1000)
+
+        ta = out[a["fragmentId"]]
+        tb = out[b["fragmentId"]]
+        ax = float(ta["x"]) + float(a["x"]) * _world_width(fa, ta)
+        ay = float(ta["y"]) + float(a["y"]) * _world_height(fa, ta)
+        bxf = float(b["x"]) * _world_width(fb, tb)
+        byf = float(b["y"]) * _world_height(fb, tb)
         out[b["fragmentId"]]["x"] = ax - bxf
         out[b["fragmentId"]]["y"] = ay - byf
 
     # Refine further with control points (they win over markers).
     for cp in control_points:
-        fa = next((f for f in fragments if f["id"] == cp["fragmentA"]), None)
-        fb = next((f for f in fragments if f["id"] == cp["fragmentB"]), None)
+        fa = _fragment_by_id(fragments, cp["fragmentA"])
+        fb = _fragment_by_id(fragments, cp["fragmentB"])
         if not fa or not fb or cp["fragmentA"] not in out or cp["fragmentB"] not in out:
             continue
-        ax = out[cp["fragmentA"]]["x"] + cp["ax"] * fa.get("width", 1000)
-        ay = out[cp["fragmentA"]]["y"] + cp["ay"] * fa.get("height", 1000)
-        out[cp["fragmentB"]]["x"] = ax - cp["bx"] * fb.get("width", 1000)
-        out[cp["fragmentB"]]["y"] = ay - cp["by"] * fb.get("height", 1000)
+
+        ta = out[cp["fragmentA"]]
+        tb = out[cp["fragmentB"]]
+        ax = float(ta["x"]) + float(cp["ax"]) * _world_width(fa, ta)
+        ay = float(ta["y"]) + float(cp["ay"]) * _world_height(fa, ta)
+        out[cp["fragmentB"]]["x"] = ax - float(cp["bx"]) * _world_width(fb, tb)
+        out[cp["fragmentB"]]["y"] = ay - float(cp["by"]) * _world_height(fb, tb)
 
     return out
 
@@ -189,8 +221,8 @@ def propose_transforms(
 # ---- Metrics ----
 
 def _bbox(f: dict[str, Any], t: dict[str, Any]) -> tuple[float, float, float, float]:
-    w = f.get("width", 1000) * t.get("scale", 1)
-    h = f.get("height", 1000) * t.get("scale", 1)
+    w = _world_width(f, t)
+    h = _world_height(f, t)
     return t["x"], t["y"], t["x"] + w, t["y"] + h
 
 
@@ -223,8 +255,10 @@ def compute_metrics(
             area = ox * oy
             if area <= 0:
                 continue
-            small_area = min((ba[2] - ba[0]) * (ba[3] - ba[1]),
-                             (bb[2] - bb[0]) * (bb[3] - bb[1]))
+            small_area = min(
+                (ba[2] - ba[0]) * (ba[3] - ba[1]),
+                (bb[2] - bb[0]) * (bb[3] - bb[1]),
+            )
             ratio = area / max(small_area, 1)
             if ratio > 0.35:
                 errors.append(f"Heavy overlap {ida} ↔ {idb} ({ratio:.0%})")

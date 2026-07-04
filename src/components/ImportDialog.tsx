@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { Fragment } from "@/components/HistologyCanvas";
-import { backend, assetUrl } from "@/lib/backend-api";
+import { backend } from "@/lib/backend-api";
 import { toast } from "sonner";
 
 const MAX_FILES = 12;
@@ -46,11 +46,13 @@ export function ImportDialog({
   onOpenChange,
   existingIds,
   onImport,
+  onBusyChange,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   existingIds: string[];
   onImport: (fragments: Fragment[]) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -126,6 +128,7 @@ export function ImportDialog({
 
   const handleImport = async () => {
     setBusy(true);
+    onBusyChange?.(true);
     try {
       const valid = staged.filter((s) => s.kind !== "unsupported");
       const hasMrxs = valid.some((s) => s.kind === "mrxs");
@@ -139,7 +142,7 @@ export function ImportDialog({
           caseId = c.caseId;
         } catch (e) {
           console.warn("createCase failed", e);
-          toast.error("Backend недоступен, .mrxs будет placeholder-ом");
+          toast.error("Модуль .mrxs недоступен. Запустите backend-сервис");
         }
       } else if (hasMrxs) {
         toast.warning("Модуль .mrxs недоступен. Запустите backend-сервис.");
@@ -154,7 +157,19 @@ export function ImportDialog({
         const isZip = s.file.name.toLowerCase().endsWith(".zip");
         const idx = i - 2;
         let remote:
-          | { remoteId: string; remoteCaseId: string; thumbnailUrl?: string; pixelWidth?: number; pixelHeight?: number; mppX?: number | null; mppY?: number | null }
+          | {
+              backendId: string;
+              remoteId: string;
+              remoteCaseId: string;
+              src?: string;
+              thumbnailUrl?: string;
+              width?: number;
+              height?: number;
+              pixelWidth?: number;
+              pixelHeight?: number;
+              mppX?: number | null;
+              mppY?: number | null;
+            }
           | undefined;
 
         if (caseId) {
@@ -162,10 +177,15 @@ export function ImportDialog({
             const f = isZip
               ? await backend.uploadFragmentArchive(caseId, s.file)
               : await backend.uploadFragment(caseId, s.file);
+            const thumbnailUrl = backend.assetUrl(f.thumbnail);
             remote = {
+              backendId: f.id,
               remoteId: f.id,
               remoteCaseId: caseId,
-              thumbnailUrl: assetUrl(f.thumbnail),
+              src: thumbnailUrl,
+              thumbnailUrl,
+              width: f.width,
+              height: f.height,
               pixelWidth: f.width,
               pixelHeight: f.height,
               mppX: f.mppX ?? null,
@@ -211,6 +231,7 @@ export function ImportDialog({
       onOpenChange(false);
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   };
 
@@ -299,7 +320,7 @@ export function ImportDialog({
                   <p className="text-sm font-medium truncate">{s.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {s.sizeKb.toLocaleString("ru")} КБ ·{" "}
-                    {s.kind === "image" ? "изображение" : s.kind === "mrxs" ? "MRXS (плейсхолдер)" : "не поддерживается"}
+                    {s.kind === "image" ? "изображение" : s.kind === "mrxs" ? "MRXS / ZIP" : "не поддерживается"}
                   </p>
                 </div>
                 <button

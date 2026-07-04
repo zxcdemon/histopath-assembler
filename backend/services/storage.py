@@ -1,4 +1,5 @@
-"""Filesystem-backed storage for cases, fragments, transforms, markers."""
+"""Filesystem-backed storage for cases, fragments, transforms, and markers."""
+
 from __future__ import annotations
 
 import json
@@ -27,23 +28,29 @@ class Storage:
     # ---- cases ----
 
     def create_case(self, case_id: str, name: str) -> None:
-        d = self.case_dir(case_id)
-        d.mkdir(parents=True, exist_ok=True)
-        self._write(case_id, {
-            "id": case_id,
-            "name": name,
-            "fragments": [],
-            "transforms": {},
-            "markers": [],
-            "controlPoints": [],
-            "settings": {},
-        })
+        directory = self.case_dir(case_id)
+        directory.mkdir(parents=True, exist_ok=True)
+
+        self._write(
+            case_id,
+            {
+                "id": case_id,
+                "name": name,
+                "fragments": [],
+                "transforms": {},
+                "markers": [],
+                "controlPoints": [],
+                "settings": {},
+            },
+        )
 
     def get_case(self, case_id: str) -> dict[str, Any] | None:
-        p = self._case_file(case_id)
-        if not p.exists():
+        path = self._case_file(case_id)
+
+        if not path.exists():
             return None
-        return json.loads(p.read_text())
+
+        return json.loads(path.read_text())
 
     def _write(self, case_id: str, data: dict[str, Any]) -> None:
         with self._lock:
@@ -61,7 +68,10 @@ class Storage:
         return c.get("fragments", [])
 
     def get_fragment(self, case_id: str, fragment_id: str) -> dict[str, Any] | None:
-        return next((f for f in self.list_fragments(case_id) if f["id"] == fragment_id), None)
+        return next(
+            (fragment for fragment in self.list_fragments(case_id) if fragment["id"] == fragment_id),
+            None,
+        )
 
     # ---- transforms / markers ----
 
@@ -78,8 +88,9 @@ class Storage:
     # ---- snapshot ----
 
     def snapshot(self, case_id: str) -> dict[str, Any]:
-        c = self.get_case(case_id) or {}
-        return {"version": 1, "case": c}
+        case = self.get_case(case_id) or {}
+
+        return {"version": 1, "case": case}
 
     def load_snapshot(self, snap: dict[str, Any]) -> str:
         case = snap.get("case", {})

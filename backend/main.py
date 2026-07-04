@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.storage import Storage
 from services.openslide_service import OpenSlideService, WSIUnavailable
@@ -88,9 +88,9 @@ class ControlPoint(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    markers: list[Marker] = []
-    controlPoints: list[ControlPoint] = []
-    currentTransforms: dict[str, Transform] = {}
+    markers: list[Marker] = Field(default_factory=list)
+    controlPoints: list[ControlPoint] = Field(default_factory=list)
+    currentTransforms: dict[str, Transform] = Field(default_factory=dict)
 
 
 class PreviewIn(BaseModel):
@@ -100,10 +100,48 @@ class PreviewIn(BaseModel):
 
 class ExportIn(BaseModel):
     transforms: dict[str, Transform]
-    markers: list[Marker] = []
-    controlPoints: list[ControlPoint] = []
-    metrics: dict[str, Any] = {}
+    markers: list[Marker] = Field(default_factory=list)
+    controlPoints: list[ControlPoint] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
     format: str = "ome-tiff"  # "ome-tiff" | "bigtiff" | "png"
+
+
+def _is_wsi_name(filename: str | None) -> bool:
+    suffix = Path(filename or "").suffix.lower()
+    return suffix in {".mrxs", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".bif"}
+
+
+def _normalised_export_format(raw_format: str) -> str:
+    fmt = raw_format.lower().strip()
+
+    if fmt == "big-tiff":
+        return "bigtiff"
+
+    if fmt in {"png", "ome-tiff", "bigtiff"}:
+        return fmt
+
+    raise HTTPException(400, "Unsupported export format")
+
+
+def _export_filename(case_id: str, fmt: str) -> str:
+    if fmt == "png":
+        return f"histotopogram_{case_id}.png"
+
+    if fmt == "bigtiff":
+        return f"histotopogram_{case_id}.bigtiff.tif"
+
+    return f"histotopogram_{case_id}.ome.tif"
+
+
+async def _stream_upload_to_path(file: UploadFile, destination: Path) -> None:
+    with destination.open("wb") as output:
+        while True:
+            chunk = await file.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            output.write(chunk)
 
 
 # ---------- Health ----------
@@ -146,16 +184,20 @@ async def upload_fragment(case_id: str, file: UploadFile = File(...)):
     dest.mkdir(parents=True, exist_ok=True)
     file_path = dest / (file.filename or "upload.bin")
 
-    # Stream to disk (WSIs are large).
-    with file_path.open("wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
+    await _stream_upload_to_path(file, file_path)
 
     try:
         meta = wsi.probe(file_path)
     except WSIUnavailable as e:
-        # Non-WSI file — still store as raw image if Pillow can open it.
-        meta = wsi.probe_raster(file_path, reason=str(e))
+        if _is_wsi_name(file.filename):
+            shutil.rmtree(dest, ignore_errors=True)
+            raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}") from e
+
+        try:
+            meta = wsi.probe_raster(file_path, reason=str(e))
+        except Exception as raster_error:  # noqa: BLE001
+            shutil.rmtree(dest, ignore_errors=True)
+            raise HTTPException(415, f"Файл не поддерживается: {raster_error}") from raster_error
 
     # Precompute thumbnail
     try:
@@ -189,11 +231,8 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     dest = storage.fragment_dir(case_id, fragment_id)
     dest.mkdir(parents=True, exist_ok=True)
 
-    # Save the archive itself to a temp location, then extract into `dest`.
     tmp_zip = dest / (file.filename or "upload.zip")
-    with tmp_zip.open("wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
+    await _stream_upload_to_path(file, tmp_zip)
 
     if not zipfile.is_zipfile(tmp_zip):
         shutil.rmtree(dest, ignore_errors=True)
@@ -223,7 +262,8 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     try:
         meta = wsi.probe(file_path)
     except WSIUnavailable as e:
-        raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}")
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(415, f"Не удалось открыть .mrxs через OpenSlide: {e}") from e
 
     try:
         thumb_path = dest / "thumb.jpg"
@@ -235,7 +275,7 @@ async def upload_fragment_archive(case_id: str, file: UploadFile = File(...)):
     frag = {
         "id": fragment_id,
         "caseId": case_id,
-        "fileName": file.filename,
+        "fileName": file_path.name,
         "path": str(file_path),
         **meta,
     }
@@ -302,17 +342,17 @@ def register(case_id: str, payload: RegisterIn):
     if len(frags) < 2:
         raise HTTPException(400, "Need at least 2 fragments")
 
+    markers = [m.model_dump() for m in payload.markers]
+    control_points = [cp.model_dump() for cp in payload.controlPoints]
+    current = {k: v.model_dump() for k, v in payload.currentTransforms.items()}
+
     proposed = propose_transforms(
         fragments=frags,
-        markers=[m.model_dump() for m in payload.markers],
-        control_points=[cp.model_dump() for cp in payload.controlPoints],
-        current=(
-            {k: v.model_dump() for k, v in payload.currentTransforms.items()}
-            if payload.currentTransforms
-            else None
-        ),
+        markers=markers,
+        control_points=control_points,
+        current=current or None,
     )
-    metrics = compute_metrics(frags, proposed, payload.markers, payload.controlPoints)
+    metrics = compute_metrics(frags, proposed, markers, control_points)
     return {"proposedTransforms": proposed, "metrics": metrics}
 
 
@@ -335,13 +375,16 @@ def export_case(case_id: str, payload: ExportIn):
     frags = storage.list_fragments(case_id)
     if not frags:
         raise HTTPException(400, "No fragments")
+    fmt = _normalised_export_format(payload.format)
+    transforms = {k: v.model_dump() for k, v in payload.transforms.items()}
     try:
         buf = export_composition(
             fragments=frags,
-            transforms={k: v.model_dump() for k, v in payload.transforms.items()},
-            fmt=payload.format,
+            transforms=transforms,
+            fmt=fmt,
             metadata={
                 "caseId": case_id,
+                "transforms": transforms,
                 "markers": [m.model_dump() for m in payload.markers],
                 "controlPoints": [c.model_dump() for c in payload.controlPoints],
                 "metrics": payload.metrics,
@@ -356,8 +399,8 @@ def export_case(case_id: str, payload: ExportIn):
         "png": "image/png",
         "ome-tiff": "image/tiff",
         "bigtiff": "image/tiff",
-    }.get(payload.format, "application/octet-stream")
-    filename = f"histotopogram_{case_id}.{ 'png' if payload.format == 'png' else 'ome.tif' }"
+    }.get(fmt, "application/octet-stream")
+    filename = _export_filename(case_id, fmt)
     return StreamingResponse(
         io.BytesIO(buf),
         media_type=media,

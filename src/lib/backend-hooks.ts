@@ -44,7 +44,7 @@ export function useBackend(fragments: Fragment[]) {
   );
 
   const backendFragments = useMemo(
-    () => fragments.filter((f) => f.remoteId),
+    () => fragments.filter((f) => f.backendId || f.remoteId),
     [fragments],
   );
 
@@ -84,13 +84,20 @@ export function useBackend(fragments: Fragment[]) {
  */
 export function strokesToMarkers(
   strokes: Array<{ fragmentId: string; color: string; points: Array<{ x: number; y: number }> }>,
+  fragments: Fragment[] = [],
 ): BackendMarker[] {
+  const remoteByLocal = new Map(
+    fragments
+      .map((fragment) => [fragment.id, fragment.backendId ?? fragment.remoteId] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+  );
   const buckets = new Map<string, { fragmentId: string; color: string; sx: number; sy: number; n: number; spread: number }>();
   for (const s of strokes) {
-    const key = `${s.fragmentId}:${s.color}`;
+    const backendFragmentId = remoteByLocal.get(s.fragmentId) ?? s.fragmentId;
+    const key = `${backendFragmentId}:${s.color}`;
     let b = buckets.get(key);
     if (!b) {
-      b = { fragmentId: s.fragmentId, color: s.color, sx: 0, sy: 0, n: 0, spread: 0 };
+      b = { fragmentId: backendFragmentId, color: s.color, sx: 0, sy: 0, n: 0, spread: 0 };
       buckets.set(key, b);
     }
     for (const p of s.points) {
@@ -136,14 +143,16 @@ export function placementsToTransforms(
 ): Record<string, BackendTransform> {
   const out: Record<string, BackendTransform> = {};
   for (const f of fragments) {
-    if (!f.remoteId) continue;
+    const backendId = f.backendId ?? f.remoteId;
+    if (!backendId) continue;
     const p = placements[f.id];
     if (!p) continue;
-    out[f.remoteId] = {
+    const naturalWidth = Math.max(1, f.pixelWidth ?? f.width ?? 100);
+    out[backendId] = {
       x: p.x,
       y: p.y,
       rot: p.rot ?? 0,
-      scale: (p.w ?? 100) / 100,
+      scale: (p.w ?? 100) / naturalWidth,
     };
   }
   return out;
@@ -156,22 +165,68 @@ export function transformsToPlacements<P extends { x: number; y: number; rot: nu
   fragments: Fragment[],
 ): Record<string, P> {
   const byRemote = new Map<string, Fragment>();
-  for (const f of fragments) if (f.remoteId) byRemote.set(f.remoteId, f);
+  for (const f of fragments) {
+    const backendId = f.backendId ?? f.remoteId;
+    if (backendId) byRemote.set(backendId, f);
+  }
   const next = { ...current };
   for (const [remoteId, t] of Object.entries(transforms)) {
     const frag = byRemote.get(remoteId);
     if (!frag) continue;
     const cur = current[frag.id];
     if (!cur) continue;
+    const naturalWidth = Math.max(1, frag.pixelWidth ?? frag.width ?? cur.w ?? 100);
     next[frag.id] = {
       ...cur,
       x: t.x,
       y: t.y,
       rot: t.rot,
-      w: (cur.w ?? 100) * (t.scale || 1),
+      w: naturalWidth * (t.scale || 1),
     };
   }
   return next;
+}
+
+export function controlPointsToBackend(
+  points: Array<{ id: string; fragmentId: string; x: number; y: number; pairId: number }>,
+  fragments: Fragment[],
+): BackendControlPoint[] {
+  const remoteByLocal = new Map(
+    fragments
+      .map((fragment) => [fragment.id, fragment.backendId ?? fragment.remoteId] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+  );
+  const byPair = new Map<number, typeof points>();
+
+  for (const point of points) {
+    const group = byPair.get(point.pairId) ?? [];
+    group.push(point);
+    byPair.set(point.pairId, group);
+  }
+
+  const out: BackendControlPoint[] = [];
+
+  for (const [pairId, group] of byPair.entries()) {
+    if (group.length !== 2) continue;
+
+    const [a, b] = group;
+    const fragmentA = remoteByLocal.get(a.fragmentId);
+    const fragmentB = remoteByLocal.get(b.fragmentId);
+
+    if (!fragmentA || !fragmentB || fragmentA === fragmentB) continue;
+
+    out.push({
+      id: `cp-${pairId}`,
+      fragmentA,
+      fragmentB,
+      ax: a.x / 100,
+      ay: a.y / 100,
+      bx: b.x / 100,
+      by: b.y / 100,
+    });
+  }
+
+  return out;
 }
 
 export type UseBackend = ReturnType<typeof useBackend>;

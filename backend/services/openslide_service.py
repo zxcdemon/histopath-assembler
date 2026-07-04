@@ -1,4 +1,5 @@
 """OpenSlide-backed WSI reader with Pillow fallback for raster images."""
+
 from __future__ import annotations
 
 import io
@@ -9,6 +10,7 @@ from PIL import Image
 
 try:
     import openslide  # type: ignore
+
     _OPENSLIDE_OK = True
     _OPENSLIDE_ERR: str | None = None
 except Exception as e:  # noqa: BLE001
@@ -30,9 +32,24 @@ class OpenSlideService:
     def probe(self, path: Path) -> dict[str, Any]:
         if not _OPENSLIDE_OK:
             raise WSIUnavailable(f"OpenSlide not available: {_OPENSLIDE_ERR}")
-        if not path.suffix.lower() in {".mrxs", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".tif", ".tiff", ".bif"}:
+
+        supported_extensions = {
+            ".mrxs",
+            ".svs",
+            ".ndpi",
+            ".vms",
+            ".vmu",
+            ".scn",
+            ".tif",
+            ".tiff",
+            ".bif",
+        }
+
+        if path.suffix.lower() not in supported_extensions:
             raise WSIUnavailable(f"Unsupported WSI extension: {path.suffix}")
+
         slide = openslide.OpenSlide(str(path))
+
         try:
             w, h = slide.dimensions
             mpp_x = slide.properties.get(openslide.PROPERTY_NAME_MPP_X)
@@ -71,6 +88,7 @@ class OpenSlideService:
     def write_thumbnail(self, src: Path, dst: Path, max_side: int = 512) -> None:
         if _OPENSLIDE_OK and src.suffix.lower() in {".mrxs", ".svs", ".ndpi"}:
             slide = openslide.OpenSlide(str(src))
+
             try:
                 thumb = slide.get_thumbnail((max_side, max_side))
             finally:
@@ -79,6 +97,7 @@ class OpenSlideService:
             with Image.open(src) as im:
                 im.thumbnail((max_side, max_side))
                 thumb = im.convert("RGB")
+
         thumb.convert("RGB").save(dst, "JPEG", quality=85)
 
     # ---- tiles ----
@@ -86,9 +105,11 @@ class OpenSlideService:
     def read_tile(self, path: Path, level: int, x: int, y: int, tile_size: int = 256) -> bytes:
         if _OPENSLIDE_OK and path.suffix.lower() in {".mrxs", ".svs", ".ndpi"}:
             slide = openslide.OpenSlide(str(path))
+
             try:
                 if level < 0 or level >= slide.level_count:
                     raise WSIUnavailable(f"Invalid level {level}")
+
                 downsample = slide.level_downsamples[level]
                 loc = (int(x * tile_size * downsample), int(y * tile_size * downsample))
                 tile = slide.read_region(loc, level, (tile_size, tile_size)).convert("RGB")
@@ -105,6 +126,8 @@ class OpenSlideService:
                 px = x * tile_size
                 py = y * tile_size
                 tile = im.crop((px, py, px + tile_size, py + tile_size))
+
         buf = io.BytesIO()
         tile.save(buf, "JPEG", quality=85)
+
         return buf.getvalue()

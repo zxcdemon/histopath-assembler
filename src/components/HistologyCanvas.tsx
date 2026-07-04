@@ -15,12 +15,15 @@ export type Fragment = {
   // Optional filename for imports
   fileName?: string;
   // Backend linkage (populated after successful upload to Python backend).
+  backendId?: string;
   remoteCaseId?: string;
   remoteId?: string;
   // Absolute URL to a JPEG thumbnail served by the backend. When present,
   // FragmentImage renders this instead of the MRXS placeholder.
   thumbnailUrl?: string;
   // Real pixel dimensions of the underlying WSI (from OpenSlide).
+  width?: number;
+  height?: number;
   pixelWidth?: number;
   pixelHeight?: number;
   mppX?: number | null;
@@ -45,21 +48,48 @@ export function FragmentImage({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  // Backend-provided thumbnail wins over any local placeholder.
-  if (fragment.thumbnailUrl) {
+  const imageSource = fragment.src ?? fragment.thumbnailUrl;
+
+  // Real source or backend-provided thumbnail wins over any MRXS fallback.
+  if (imageSource) {
     return (
       <div
         className={className}
         role="img"
         aria-label={`Гистологический фрагмент ${fragment.label}`}
         style={{
-          backgroundImage: `url(${fragment.thumbnailUrl})`,
+          backgroundImage: `url(${imageSource})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundRepeat: "no-repeat",
           ...style,
         }}
       />
+    );
+  }
+
+  // Backend fragment exists but its thumbnail URL is not available yet.
+  if (fragment.backendId || fragment.remoteId) {
+    return (
+      <div
+        className={className}
+        role="img"
+        aria-label={`Гистологический фрагмент ${fragment.label} загружается`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "oklch(0.94 0.01 250)",
+          color: "oklch(0.42 0.02 250)",
+          fontSize: 10,
+          fontWeight: 600,
+          textAlign: "center",
+          padding: 4,
+          ...style,
+        }}
+      >
+        Загрузка thumbnail…
+      </div>
     );
   }
 
@@ -95,24 +125,6 @@ export function FragmentImage({
           backend offline
         </span>
       </div>
-    );
-  }
-
-  // Imported image — cover the whole box, no crop.
-  if (fragment.src) {
-    return (
-      <div
-        className={className}
-        role="img"
-        aria-label={`Гистологический фрагмент ${fragment.label}`}
-        style={{
-          backgroundImage: `url(${fragment.src})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundRepeat: "no-repeat",
-          ...style,
-        }}
-      />
     );
   }
 

@@ -1,12 +1,13 @@
-"""Composition preview & export.
-
-- PNG preview: composited from downsampled fragment images (Pillow).
-- OME-TIFF / BigTIFF export: uses `tifffile` when possible, falls back to
-  NotImplementedError so the frontend can surface a clear message.
-
-We NEVER synthesise pixels for gaps between fragments; empty regions
-remain transparent / white.
 """
+Composition preview and export.
+
+PNG preview is rendered with Pillow from downsampled source fragments. OME-TIFF
+and BigTIFF are written with tifffile when the dependency is installed.
+
+No synthetic tissue pixels are generated. Empty regions remain transparent in
+PNG and white/empty in TIFF-derived viewers.
+"""
+
 from __future__ import annotations
 
 import io
@@ -18,6 +19,7 @@ from PIL import Image
 
 try:
     import tifffile  # type: ignore
+
     _TIFFFILE_OK = True
 except Exception:  # noqa: BLE001
     tifffile = None  # type: ignore
@@ -25,66 +27,90 @@ except Exception:  # noqa: BLE001
 
 
 def _load_frag_image(frag: dict[str, Any], max_side: int) -> Image.Image:
-    p = Path(frag["path"])
+    path = Path(frag["path"])
+
     if frag.get("kind") == "wsi":
         try:
             import openslide  # type: ignore
-            s = openslide.OpenSlide(str(p))
+
+            slide = openslide.OpenSlide(str(path))
             try:
-                im = s.get_thumbnail((max_side, max_side)).convert("RGBA")
+                image = slide.get_thumbnail((max_side, max_side)).convert("RGBA")
             finally:
-                s.close()
-            return im
+                slide.close()
+
+            return image
         except Exception:  # noqa: BLE001
             pass
-    with Image.open(p) as im:
-        im = im.convert("RGBA")
-        im.thumbnail((max_side, max_side))
-        return im.copy()
+
+    with Image.open(path) as image:
+        image = image.convert("RGBA")
+        image.thumbnail((max_side, max_side))
+
+        return image.copy()
 
 
-def _canvas_bounds(fragments, transforms, images):
+def _world_width(fragment: dict[str, Any], transform: dict[str, Any]) -> float:
+    return float(fragment.get("width", 1)) * float(transform.get("scale", 1.0))
+
+
+def _world_height(fragment: dict[str, Any], transform: dict[str, Any]) -> float:
+    return float(fragment.get("height", 1)) * float(transform.get("scale", 1.0))
+
+
+def _canvas_bounds(fragments, transforms):
     xs, ys, xe, ye = [], [], [], []
-    for f, im in zip(fragments, images):
-        t = transforms.get(f["id"])
-        if not t:
+
+    for fragment in fragments:
+        transform = transforms.get(fragment["id"])
+
+        if not transform:
             continue
-        w = f.get("width") or im.width
-        h = f.get("height") or im.height
-        # If image was downscaled, keep ratio in world coords via scale in transform.
-        scale = t.get("scale", 1) * (im.width / max(1, w))
-        xs.append(t["x"])
-        ys.append(t["y"])
-        xe.append(t["x"] + im.width * scale)
-        ye.append(t["y"] + im.height * scale)
+
+        xs.append(float(transform["x"]))
+        ys.append(float(transform["y"]))
+        xe.append(float(transform["x"]) + _world_width(fragment, transform))
+        ye.append(float(transform["y"]) + _world_height(fragment, transform))
+
     if not xs:
         return 0, 0, 1024, 1024
+
     return min(xs), min(ys), max(xe), max(ye)
 
 
 def _render_composition(fragments, transforms, max_side: int) -> Image.Image:
     images = [_load_frag_image(f, max_side) for f in fragments]
-    x0, y0, x1, y1 = _canvas_bounds(fragments, transforms, images)
-    W = max(1, int(x1 - x0))
-    H = max(1, int(y1 - y0))
-    if max(W, H) > max_side:
-        s = max_side / max(W, H)
-        W = int(W * s)
-        H = int(H * s)
-    else:
-        s = 1.0
+    x0, y0, x1, y1 = _canvas_bounds(fragments, transforms)
+    width = max(1, int(x1 - x0))
+    height = max(1, int(y1 - y0))
 
-    canvas = Image.new("RGBA", (W, H), (255, 255, 255, 0))
-    for f, im in zip(fragments, images):
-        t = transforms.get(f["id"])
-        if not t:
+    if max(width, height) > max_side:
+        output_scale = max_side / max(width, height)
+        width = int(width * output_scale)
+        height = int(height * output_scale)
+    else:
+        output_scale = 1.0
+
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+
+    for fragment, source_image in zip(fragments, images):
+        transform = transforms.get(fragment["id"])
+
+        if not transform:
             continue
-        rot = t.get("rot", 0)
-        if rot:
-            im = im.rotate(-rot, resample=Image.BICUBIC, expand=True)
-        px = int((t["x"] - x0) * s)
-        py = int((t["y"] - y0) * s)
-        canvas.alpha_composite(im, (px, py))
+
+        render_width = max(1, int(_world_width(fragment, transform) * output_scale))
+        render_height = max(1, int(_world_height(fragment, transform) * output_scale))
+        image = source_image.resize((render_width, render_height), Image.Resampling.LANCZOS)
+        rotation = float(transform.get("rot", 0.0))
+
+        if rotation:
+            image = image.rotate(-rotation, resample=Image.BICUBIC, expand=True)
+
+        px = int((float(transform["x"]) - x0) * output_scale)
+        py = int((float(transform["y"]) - y0) * output_scale)
+        canvas.alpha_composite(image, (px, py))
+
     return canvas
 
 
@@ -107,7 +133,9 @@ def export_composition(
             raise NotImplementedError(
                 "tifffile is not installed; cannot write OME-TIFF/BigTIFF."
             )
+
         import numpy as np
+
         arr = np.asarray(img.convert("RGB"))
         buf = io.BytesIO()
         description = json.dumps(metadata or {})
