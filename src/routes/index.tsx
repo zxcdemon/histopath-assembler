@@ -312,7 +312,19 @@ function Workspace() {
   );
 }
 
-function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
+function TopBar({
+  onOpenNav,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+}: {
+  onOpenNav: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+}) {
   return (
     <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center gap-2 px-3 md:px-4">
       <button
@@ -329,13 +341,23 @@ function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
         <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
       </div>
       <div className="ml-auto flex items-center gap-1">
-        <IconBtn aria-label="Отменить"><Undo2 className="h-4 w-4" /></IconBtn>
-        <IconBtn aria-label="Повторить"><Redo2 className="h-4 w-4" /></IconBtn>
-        <Button className="ml-2 h-9 px-4">Сделать</Button>
+        <IconBtn aria-label="Отменить" onClick={onUndo} disabled={!canUndo}>
+          <Undo2 className="h-4 w-4" />
+        </IconBtn>
+        <IconBtn aria-label="Повторить" onClick={onRedo} disabled={!canRedo}>
+          <Redo2 className="h-4 w-4" />
+        </IconBtn>
+        <Button
+          className="ml-2 h-9 px-4"
+          onClick={() => toast("Сшивка запущена", { description: "Результат появится в разделе «Просмотр»." })}
+        >
+          Сделать
+        </Button>
       </div>
     </header>
   );
 }
+
 
 function IconBtn({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
