@@ -2019,25 +2019,56 @@ function BottomBar({
             })}
           </div>
         </div>
-        <div className="hidden md:flex shrink-0 items-center gap-3 border-l border-border pl-4 self-stretch">
+        <div
+          className="hidden md:flex shrink-0 items-center gap-3 border-l border-border pl-4 self-stretch"
+          title="Учитываются маркеры туши, контрольные точки и найденные соседние края"
+        >
           <div className="relative h-14 w-14">
             <svg viewBox="0 0 36 36" className="h-14 w-14 -rotate-90">
               <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border)" strokeWidth="3" />
               <circle
                 cx="18" cy="18" r="15.5" fill="none"
-                stroke="var(--primary)" strokeWidth="3" strokeLinecap="round"
-                strokeDasharray={`${(68 / 100) * 97.4} 100`}
+                stroke={
+                  metrics.statusTone === "issues"
+                    ? "#ef4444"
+                    : metrics.statusTone === "check"
+                      ? "#eab308"
+                      : "var(--primary)"
+                }
+                strokeWidth="3" strokeLinecap="round"
+                strokeDasharray={`${(metrics.score / 100) * 97.4} 100`}
+                style={{ transition: "stroke-dasharray 300ms ease" }}
               />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold">
-              68%
+            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">
+              {metrics.score}%
             </span>
           </div>
           <div className="text-xs">
             <div className="font-semibold text-sm mb-0.5">Сборка</div>
-            <div className="text-muted-foreground">Совпадений: 124</div>
-            <div className="text-muted-foreground">Ошибок: 2</div>
-            <button className="mt-1 text-primary hover:underline">Подробности</button>
+            <div className="text-muted-foreground tabular-nums">Совпадений: {metrics.matchCount}</div>
+            <div
+              className={
+                metrics.errorCount > 0
+                  ? "text-destructive tabular-nums"
+                  : metrics.warningCount > 0
+                    ? "text-amber-600 tabular-nums"
+                    : "text-muted-foreground tabular-nums"
+              }
+            >
+              {metrics.errorCount > 0
+                ? `Ошибок: ${metrics.errorCount}`
+                : metrics.warningCount > 0
+                  ? `Предупреждений: ${metrics.warningCount}`
+                  : "Ошибок: 0"}
+            </div>
+            <button
+              type="button"
+              onClick={onShowDetails}
+              className="mt-1 text-primary hover:underline focus:underline"
+            >
+              Подробности
+            </button>
           </div>
         </div>
       </div>
