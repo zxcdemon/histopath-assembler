@@ -472,6 +472,8 @@ function Workspace() {
   const [pendingPlacements, setPendingPlacements] = useState<Record<string, Placement> | null>(null);
   const [regQuality, setRegQuality] = useState<RegQuality | null>(null);
   const [regResidual, setRegResidual] = useState<number | null>(null);
+  // Ghost suggestion overlay (assistant "Показать подсказку"): does not touch real placements.
+  const [ghostPlacements, setGhostPlacements] = useState<Record<string, Placement> | null>(null);
   const registrationMode = section === "registration";
   const previewMode = section === "preview";
 
@@ -564,15 +566,15 @@ function Workspace() {
     toast("Регистрация сброшена");
   }, []);
 
-  // Auto: use marker matches to snap fragments to their first matched neighbour.
-  const runAutoRegistration = useCallback(() => {
-    if (!matches.length) {
-      setPendingPlacements(null);
-      setRegQuality("bad");
-      setRegResidual(null);
-      toast("Нет совпадений маркеров", { description: "Нанесите одинаковые цвета на края соседних фрагментов." });
-      return;
-    }
+  // Pure compute of an auto-registration proposal. Does not mutate any state.
+  const computeAutoProposal = useCallback((): {
+    placements?: Record<string, Placement>;
+    quality?: RegQuality;
+    error?: "few-fragments" | "no-markers" | "no-matches";
+  } => {
+    if (fragments.length < 2) return { error: "few-fragments" };
+    if (!strokes.length && !controlPoints.length) return { error: "no-markers" };
+    if (!matches.length) return { error: "no-matches" };
     const next: Record<string, Placement> = { ...placements };
     const moved = new Set<string>();
     const sorted = [...matches].sort((a, b) => b.colors.length - a.colors.length);
@@ -599,12 +601,31 @@ function Workspace() {
       moved.add(anchor);
       moved.add(target);
     }
-    setPendingPlacements(next);
-    const q: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
-    setRegQuality(q);
+    const quality: RegQuality = matches.length >= 3 ? "good" : matches.length === 2 ? "check" : "bad";
+    return { placements: next, quality };
+  }, [fragments, strokes, controlPoints, matches, placements]);
+
+  // Auto: use marker matches to snap fragments to their first matched neighbour.
+  const runAutoRegistration = useCallback(() => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      setPendingPlacements(null);
+      setRegQuality("bad");
+      setRegResidual(null);
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки."
+            : "Нет совпадений маркеров: нанесите одинаковые цвета на края соседних фрагментов.";
+      toast("Автосовмещение не выполнено", { description: msg });
+      return;
+    }
+    setPendingPlacements(res.placements);
+    setRegQuality(res.quality ?? "check");
     setRegResidual(null);
     toast("Автосовмещение выполнено", { description: `Пар: ${matches.length}` });
-  }, [matches, strokes, placements]);
+  }, [computeAutoProposal, matches]);
 
   const runSemiRegistration = useCallback(() => {
     if (!regPair) { toast("Выберите пару фрагментов"); return; }
@@ -676,6 +697,54 @@ function Workspace() {
     setRegResidual(null);
     toast("Результат отклонён");
   }, []);
+
+  // Assistant: compute proposal and show as ghost overlay only. Real placements untouched.
+  const assistantShowSuggestion = useCallback((): { ok: boolean; error?: string } => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки. Можно показать примерную подсказку по текущему макету."
+            : "Не удалось построить автоматическую раскладку. Попробуйте добавить маркеры туши или контрольные точки.";
+      return { ok: false, error: msg };
+    }
+    setGhostPlacements(res.placements);
+    return { ok: true };
+  }, [computeAutoProposal]);
+
+  const assistantApplySuggestion = useCallback(() => {
+    if (!ghostPlacements) return;
+    commitHistory();
+    setPlacements(ghostPlacements);
+    setGhostPlacements(null);
+    toast.success("Предложение применено к фрагментам");
+  }, [ghostPlacements, commitHistory]);
+
+  const assistantHideSuggestion = useCallback(() => {
+    setGhostPlacements(null);
+  }, []);
+
+  // Assistant: auto-assemble → set pending preview (canvas already renders pending).
+  const assistantRunAuto = useCallback((): { ok: boolean; error?: string } => {
+    const res = computeAutoProposal();
+    if (res.error || !res.placements) {
+      const msg =
+        res.error === "few-fragments"
+          ? "Для сборки нужно загрузить минимум 2 фрагмента."
+          : res.error === "no-markers"
+            ? "Недостаточно маркеров или контрольных точек для уверенной автоматической сборки."
+            : "Не удалось построить автоматическую раскладку. Попробуйте добавить маркеры туши или контрольные точки.";
+      return { ok: false, error: msg };
+    }
+    setGhostPlacements(null);
+    setPendingPlacements(res.placements);
+    setRegQuality(res.quality ?? "check");
+    setRegResidual(null);
+    return { ok: true };
+  }, [computeAutoProposal]);
+
 
   const importFragments = (newFragments: Fragment[]) => {
     setFragments((prev) => [...prev, ...newFragments]);
@@ -864,6 +933,7 @@ function Workspace() {
               addControlPoint={addControlPoint}
               removeControlPoint={removeControlPoint}
               pendingPlacements={pendingPlacements}
+              ghostPlacements={ghostPlacements}
             />
           )}
 
@@ -1049,7 +1119,19 @@ function Workspace() {
         <SlidersHorizontal className="h-4 w-4" />
       </button>
 
-      <MascotAssistant onOpenHelp={() => setHelpOpen(true)} />
+      <MascotAssistant
+        onOpenHelp={() => setHelpOpen(true)}
+        fragmentCount={fragments.length}
+        hasMarkers={strokes.length + controlPoints.length > 0}
+        hasPending={!!pendingPlacements}
+        hasSuggestion={!!ghostPlacements}
+        onRunAuto={assistantRunAuto}
+        onApplyAuto={applyPending}
+        onRejectAuto={rejectPending}
+        onShowSuggestion={assistantShowSuggestion}
+        onApplySuggestion={assistantApplySuggestion}
+        onHideSuggestion={assistantHideSuggestion}
+      />
       <ImportDialog
         open={importOpen}
         onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
@@ -1227,6 +1309,7 @@ function Canvas({
   addControlPoint,
   removeControlPoint,
   pendingPlacements,
+  ghostPlacements,
 }: {
   fragments: Fragment[];
   selectedId: string;
@@ -1256,6 +1339,7 @@ function Canvas({
   addControlPoint: (fid: string, x: number, y: number) => void;
   removeControlPoint: (id: string) => void;
   pendingPlacements: Record<string, Placement> | null;
+  ghostPlacements?: Record<string, Placement> | null;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -1605,6 +1689,45 @@ function Canvas({
             +
           </span>
         ))}
+
+        {/* Ghost suggestion overlay: proposed placements shown without mutating real ones */}
+        {ghostPlacements &&
+          fragments.map((f) => {
+            const gp = ghostPlacements[f.id];
+            if (!gp) return null;
+            return (
+              <div
+                key={`ghost-${f.id}`}
+                aria-hidden
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${gp.x}%`,
+                  top: `${gp.y}%`,
+                  width: `${gp.w}%`,
+                  transform: `rotate(${gp.rot}deg)`,
+                  transformOrigin: "center",
+                }}
+              >
+                <div
+                  className="aspect-[3/2] rounded-sm relative"
+                  style={{
+                    outline: "2px dashed color-mix(in oklch, var(--primary) 75%, transparent)",
+                    outlineOffset: 2,
+                    background: "color-mix(in oklch, var(--primary) 8%, transparent)",
+                  }}
+                >
+                  <FragmentImage
+                    fragment={f}
+                    className="w-full h-full opacity-30"
+                    style={{ transform: gp.flip ? "scaleX(-1)" : undefined }}
+                  />
+                  <span className="absolute -top-2 left-1 -translate-y-full text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary text-primary-foreground shadow-sm whitespace-nowrap">
+                    Предложение {f.label}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
       </div>
 
       {/* Zoom controls */}
