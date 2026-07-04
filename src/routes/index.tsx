@@ -903,7 +903,18 @@ function FragmentParams({
                   />
                 </div>
 
-                <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => toggleInkVisible(fragment.id, m.label)}
+                  aria-label={inkVisible[inkKey(fragment.id, m.label)] ? "Скрыть" : "Показать"}
+                  className="h-6 w-6 rounded hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  {inkVisible[inkKey(fragment.id, m.label)] ? (
+                    <Eye className="h-3.5 w-3.5" />
+                  ) : (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 <span className="text-xs w-8 text-right tabular-nums">{pct}</span>
               </li>
             );
