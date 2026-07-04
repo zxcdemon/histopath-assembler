@@ -87,6 +87,24 @@ type InkLevels = Record<string, number>;
 type InkVisibility = Record<string, boolean>;
 export type InkMarker = (typeof INK_MARKERS)[number];
 
+// Painted ink markers (brush strokes) — real inking tool.
+export type MarkerPoint = { x: number; y: number };
+export type MarkerStroke = {
+  id: string;
+  fragmentId: string;
+  color: string;
+  size: number; // in % of fragment box
+  points: MarkerPoint[];
+  createdAt: number;
+};
+export type MarkerTool = "brush" | "eraser";
+const MARKER_PALETTE = [
+  "#111827", "#ef4444", "#3b82f6", "#22c55e",
+  "#eab308", "#a855f7", "#f97316", "#06b6d4",
+];
+const CASE_ID = "2025-05-20_Печень_Биопсия";
+const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
+
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
 function Workspace() {
