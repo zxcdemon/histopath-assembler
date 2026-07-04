@@ -47,6 +47,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
@@ -1508,6 +1509,8 @@ function Workspace() {
         existingIds={fragments.map((f) => f.id)}
         onImport={importFragments}
         onBusyChange={be.setUploading}
+        backendAvailable={backendAvailable}
+        backendCaseId={backendCaseId}
       />
       <SettingsPanel
         open={settingsOpen}
@@ -2603,7 +2606,41 @@ function FragmentParams({
       <div>
         <div className="flex items-center gap-1 mb-2">
           <span className="text-sm font-medium">Режим</span>
-          <Info className="h-3.5 w-3.5 text-muted-foreground" />
+          <TooltipProvider delayDuration={120}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Справка: режим совмещения"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="left"
+                align="start"
+                sideOffset={8}
+                className="w-[320px] max-w-[calc(100vw-32px)] border border-border bg-panel p-3 text-left text-foreground shadow-lg"
+              >
+                <div className="space-y-2 text-xs leading-relaxed">
+                  <div className="text-sm font-semibold">Режим совмещения</div>
+                  <p>
+                    <span className="font-medium">Авто</span> — система предлагает раскладку фрагментов по маркерам туши, краям и текущему положению.
+                  </p>
+                  <p>
+                    <span className="font-medium">Полуавто</span> — пользователь задаёт контрольные точки на совпадающих участках ткани, а система рассчитывает сдвиг, поворот и масштаб.
+                  </p>
+                  <p>
+                    <span className="font-medium">Ручной</span> — пользователь сам перемещает, поворачивает и масштабирует фрагменты.
+                  </p>
+                  <p className="border-t border-border pt-2 text-muted-foreground">
+                    Автоматический режим не применяет результат без подтверждения и не дорисовывает отсутствующую ткань.
+                  </p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1 text-xs font-medium">
           {[

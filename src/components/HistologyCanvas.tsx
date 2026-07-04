@@ -88,7 +88,7 @@ export function FragmentImage({
           ...style,
         }}
       >
-        Загрузка thumbnail…
+        Thumbnail не получен
       </div>
     );
   }
@@ -100,7 +100,7 @@ export function FragmentImage({
         className={className}
         role="img"
         aria-label={`Гистологический фрагмент ${fragment.label} (backend недоступен)`}
-        title="Модуль .mrxs недоступен. Запустите backend-сервис."
+        title="MRXS требует backend"
         style={{
           background:
             "repeating-linear-gradient(45deg, oklch(0.93 0.03 25) 0 10px, oklch(0.88 0.05 25) 10px 20px)",
@@ -117,12 +117,12 @@ export function FragmentImage({
           ...style,
         }}
       >
-        <span>MRXS</span>
+        <span>MRXS требует backend</span>
         <span style={{ fontSize: 8, fontWeight: 500, opacity: 0.8 }}>
           {fragment.fileName ?? fragment.label}
         </span>
         <span style={{ fontSize: 8, fontWeight: 500, opacity: 0.7 }}>
-          backend offline
+          Thumbnail не получен
         </span>
       </div>
     );
