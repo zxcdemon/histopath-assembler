@@ -21,6 +21,8 @@ import {
   Move,
   Info,
   RotateCcw,
+  FlipHorizontal,
+
   ChevronUp,
   X,
   SlidersHorizontal,
