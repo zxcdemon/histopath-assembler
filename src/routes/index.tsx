@@ -204,7 +204,13 @@ function Workspace() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <TopBar onOpenNav={() => setNavOpen(true)} />
+      <TopBar
+        onOpenNav={() => setNavOpen(true)}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={history.past.length > 0}
+        canRedo={history.future.length > 0}
+      />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
         <NavRail active={section} onSelect={handleSection} />
