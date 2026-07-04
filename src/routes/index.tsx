@@ -685,9 +685,18 @@ function Canvas({
   inkOn,
   inkLevels,
   inkVisible,
+  paintMode,
+  strokes,
+  brushColor,
+  brushSize,
+  brushTool,
+  addStroke,
+  updateStrokePoints,
+  eraseNear,
+  snapshotStrokes,
+  matchedColorsByFragment,
 }: {
   fragments: Fragment[];
-
   selectedId: string;
   onSelect: (id: string) => void;
   zoom: number;
@@ -698,6 +707,16 @@ function Canvas({
   inkOn: boolean;
   inkLevels: InkLevels;
   inkVisible: InkVisibility;
+  paintMode: boolean;
+  strokes: MarkerStroke[];
+  brushColor: string;
+  brushSize: number;
+  brushTool: MarkerTool;
+  addStroke: (s: MarkerStroke) => void;
+  updateStrokePoints: (id: string, points: MarkerPoint[]) => void;
+  eraseNear: (fid: string, x: number, y: number, radius: number) => void;
+  snapshotStrokes: () => void;
+  matchedColorsByFragment: Map<string, Set<string>>;
 }) {
 
   const layerRef = useRef<HTMLDivElement | null>(null);
