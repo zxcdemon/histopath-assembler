@@ -1101,6 +1101,8 @@ function Workspace() {
               selectedId={selected.id}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
+              metrics={assemblyMetrics}
+              onShowDetails={() => setAssemblyDetailsOpen(true)}
             />
           ) : (
             <button
