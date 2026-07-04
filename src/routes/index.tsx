@@ -30,10 +30,14 @@ import {
   Info,
   RotateCcw,
   FlipHorizontal,
-
   ChevronUp,
   EyeOff,
   SlidersHorizontal,
+  Brush,
+  Eraser,
+  Trash2,
+  Download,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
