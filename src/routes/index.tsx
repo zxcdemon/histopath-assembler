@@ -751,10 +751,12 @@ function SelectionHandles({
 
 
 function BottomBar({
+  fragments,
   selectedId,
   onSelect,
   onCollapse,
 }: {
+  fragments: Fragment[];
   selectedId: string;
   onSelect: (id: string) => void;
   onCollapse: () => void;
@@ -764,7 +766,7 @@ function BottomBar({
       <div className="flex items-start gap-3 md:gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-sm font-semibold">Фрагменты ({FRAGMENTS.length})</h2>
+            <h2 className="text-sm font-semibold">Фрагменты ({fragments.length})</h2>
             <button
               onClick={onCollapse}
               className="h-6 w-6 rounded hover:bg-secondary text-muted-foreground flex items-center justify-center"
@@ -774,7 +776,8 @@ function BottomBar({
             </button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
-            {FRAGMENTS.map((f) => {
+            {fragments.map((f) => {
+
               const isSel = f.id === selectedId;
               return (
                 <button
