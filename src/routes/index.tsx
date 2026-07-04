@@ -1049,14 +1049,30 @@ function Workspace() {
         <SlidersHorizontal className="h-4 w-4" />
       </button>
 
-      <MascotAssistant />
+      <MascotAssistant onOpenHelp={() => setHelpOpen(true)} />
       <ImportDialog
         open={importOpen}
         onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
         existingIds={fragments.map((f) => f.id)}
         onImport={importFragments}
       />
+      <SettingsPanel
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onSave={setSettings}
+        files={fragmentFiles}
+        onClearCache={handleClearCache}
+        onResetProject={handleResetProject}
+        onRestore={handleRestore}
+      />
+      <HelpPanel
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        currentSection={section}
+      />
       <Toaster position="top-center" />
+
 
     </div>
   );
