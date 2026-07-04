@@ -64,7 +64,7 @@ const INK_MARKERS = [
   { color: "oklch(0.62 0.18 145)", label: "Зелёный", count: 4 },
 ];
 
-type Placement = { x: number; y: number; w: number; rot: number };
+type Placement = { x: number; y: number; w: number; rot: number; flip?: boolean };
 
 function Workspace() {
   const [selectedId, setSelectedId] = useState<string>("F-03");
