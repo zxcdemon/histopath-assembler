@@ -347,7 +347,14 @@ function Workspace() {
       </button>
 
       <MascotAssistant />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={(o) => { setImportOpen(o); if (!o) setSection("layout"); }}
+        existingIds={fragments.map((f) => f.id)}
+        onImport={importFragments}
+      />
       <Toaster position="top-center" />
+
     </div>
   );
 }
