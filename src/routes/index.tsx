@@ -105,6 +105,68 @@ const MARKER_PALETTE = [
 const CASE_ID = "2025-05-20_Печень_Биопсия";
 const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
 
+// ============= Image registration =============
+export type ControlPoint = {
+  id: string;
+  fragmentId: string;
+  x: number; // 0-100 % of fragment box
+  y: number;
+  pairId: number;
+};
+export type RegQuality = "good" | "check" | "bad";
+const CP_PALETTE = [
+  "#ef4444", "#3b82f6", "#22c55e", "#eab308",
+  "#a855f7", "#f97316", "#06b6d4", "#ec4899",
+  "#14b8a6", "#8b5cf6",
+];
+const cpColor = (pairId: number) => CP_PALETTE[(pairId - 1) % CP_PALETTE.length];
+
+// Convert a control point in fragment-local % to canvas % using its placement.
+function cpToCanvas(cp: { x: number; y: number }, p: Placement) {
+  const heightPct = p.w * (2 / 3); // fragments have aspect 3:2
+  const cx = p.x + p.w / 2;
+  const cy = p.y + heightPct / 2;
+  const ox = ((cp.x - 50) / 100) * p.w * (p.flip ? -1 : 1);
+  const oy = ((cp.y - 50) / 100) * heightPct;
+  const rad = (p.rot * Math.PI) / 180;
+  return {
+    x: cx + ox * Math.cos(rad) - oy * Math.sin(rad),
+    y: cy + ox * Math.sin(rad) + oy * Math.cos(rad),
+  };
+}
+
+// 2-D similarity transform S→T (scale, rotation, translation) via closed-form.
+function computeSimilarity(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+) {
+  const n = Math.min(src.length, dst.length);
+  if (n < 1) return null;
+  const sμ = { x: 0, y: 0 }, tμ = { x: 0, y: 0 };
+  for (let i = 0; i < n; i++) { sμ.x += src[i].x; sμ.y += src[i].y; tμ.x += dst[i].x; tμ.y += dst[i].y; }
+  sμ.x /= n; sμ.y /= n; tμ.x /= n; tμ.y /= n;
+  let a = 0, b = 0, d = 0;
+  for (let i = 0; i < n; i++) {
+    const sx = src[i].x - sμ.x, sy = src[i].y - sμ.y;
+    const tx = dst[i].x - tμ.x, ty = dst[i].y - tμ.y;
+    a += sx * tx + sy * ty;
+    b += sx * ty - sy * tx;
+    d += sx * sx + sy * sy;
+  }
+  if (d < 1e-9 || n === 1) {
+    return { scale: 1, angleRad: 0, tx: tμ.x - sμ.x, ty: tμ.y - sμ.y };
+  }
+  const scale = Math.sqrt(a * a + b * b) / d;
+  const angleRad = Math.atan2(b, a);
+  const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
+  return {
+    scale,
+    angleRad,
+    tx: tμ.x - scale * (cos * sμ.x - sin * sμ.y),
+    ty: tμ.y - scale * (sin * sμ.x + cos * sμ.y),
+  };
+}
+
 const inkKey = (fid: string, label: string) => `${fid}|${label}`;
 
 function Workspace() {
