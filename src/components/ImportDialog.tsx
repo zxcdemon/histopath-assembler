@@ -1,5 +1,5 @@
-import { useRef, useState, type DragEvent, type ChangeEvent } from "react";
-import { Upload, X, FileImage, FileWarning, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from "react";
+import { Upload, X, FileImage, FileWarning, Loader2, ServerCrash, ServerCog } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { Fragment } from "@/components/HistologyCanvas";
+import { backend, assetUrl } from "@/lib/backend-api";
+import { toast } from "sonner";
 
 const MAX_FILES = 12;
 const MIN_FILES = 2;
@@ -52,7 +54,18 @@ export function ImportDialog({
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setBackendReady(null);
+    backend.isAvailable().then((ok) => !cancelled && setBackendReady(ok));
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const addFiles = (files: FileList | File[]) => {
     const arr = Array.from(files);
@@ -114,15 +127,52 @@ export function ImportDialog({
     setBusy(true);
     try {
       const valid = staged.filter((s) => s.kind !== "unsupported");
+      const hasMrxs = valid.some((s) => s.kind === "mrxs");
+
+      // If backend is available, upload EVERY file so we always get real
+      // metadata + thumbnail. If unavailable and there are .mrxs files, warn.
+      let caseId: string | null = null;
+      if (backendReady) {
+        try {
+          const c = await backend.createCase();
+          caseId = c.caseId;
+        } catch (e) {
+          console.warn("createCase failed", e);
+          toast.error("Backend недоступен, .mrxs будет placeholder-ом");
+        }
+      } else if (hasMrxs) {
+        toast.warning("Модуль .mrxs недоступен. Запустите backend-сервис.");
+      }
+
       const out: Fragment[] = [];
       let i = 1;
       for (const s of valid) {
         const id = nextId(i++);
         const isImg = s.kind === "image";
-        let src: string | undefined;
-        if (isImg) src = await readAsDataUrl(s.file);
-        // Place new fragments on a diagonal so they don't overlap the same spot.
         const idx = i - 2;
+        let remote:
+          | { remoteId: string; remoteCaseId: string; thumbnailUrl?: string; pixelWidth?: number; pixelHeight?: number; mppX?: number | null; mppY?: number | null }
+          | undefined;
+
+        if (caseId) {
+          try {
+            const f = await backend.uploadFragment(caseId, s.file);
+            remote = {
+              remoteId: f.id,
+              remoteCaseId: caseId,
+              thumbnailUrl: assetUrl(f.thumbnail),
+              pixelWidth: f.width,
+              pixelHeight: f.height,
+              mppX: f.mppX ?? null,
+              mppY: f.mppY ?? null,
+            };
+          } catch (e) {
+            console.warn("uploadFragment failed", s.name, e);
+          }
+        }
+
+        const src = isImg && !remote ? await readAsDataUrl(s.file) : undefined;
+
         out.push({
           id,
           label: id,
@@ -131,6 +181,7 @@ export function ImportDialog({
           src,
           kind: isImg ? "image" : "mrxs",
           fileName: s.name,
+          ...remote,
         });
       }
       onImport(out);

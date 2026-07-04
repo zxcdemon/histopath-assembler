@@ -14,6 +14,17 @@ export type Fragment = {
   kind?: "image" | "mrxs";
   // Optional filename for imports
   fileName?: string;
+  // Backend linkage (populated after successful upload to Python backend).
+  remoteCaseId?: string;
+  remoteId?: string;
+  // Absolute URL to a JPEG thumbnail served by the backend. When present,
+  // FragmentImage renders this instead of the MRXS placeholder.
+  thumbnailUrl?: string;
+  // Real pixel dimensions of the underlying WSI (from OpenSlide).
+  pixelWidth?: number;
+  pixelHeight?: number;
+  mppX?: number | null;
+  mppY?: number | null;
 };
 
 export const FRAGMENTS: Fragment[] = [
@@ -34,17 +45,37 @@ export function FragmentImage({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  // Placeholder for .mrxs (Mirax) — real rendering needs OpenSlide server-side.
-  if (fragment.kind === "mrxs") {
+  // Backend-provided thumbnail wins over any local placeholder.
+  if (fragment.thumbnailUrl) {
     return (
       <div
         className={className}
         role="img"
         aria-label={`Гистологический фрагмент ${fragment.label}`}
         style={{
+          backgroundImage: `url(${fragment.thumbnailUrl})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          ...style,
+        }}
+      />
+    );
+  }
+
+  // Placeholder for .mrxs when backend is not connected.
+  if (fragment.kind === "mrxs") {
+    return (
+      <div
+        className={className}
+        role="img"
+        aria-label={`Гистологический фрагмент ${fragment.label} (backend недоступен)`}
+        title="Модуль .mrxs недоступен. Запустите backend-сервис."
+        style={{
           background:
             "repeating-linear-gradient(45deg, oklch(0.93 0.03 25) 0 10px, oklch(0.88 0.05 25) 10px 20px)",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           color: "oklch(0.35 0.08 25)",
@@ -52,10 +83,17 @@ export function FragmentImage({
           fontWeight: 600,
           textAlign: "center",
           padding: 4,
+          gap: 2,
           ...style,
         }}
       >
-        MRXS<br />{fragment.fileName ?? fragment.label}
+        <span>MRXS</span>
+        <span style={{ fontSize: 8, fontWeight: 500, opacity: 0.8 }}>
+          {fragment.fileName ?? fragment.label}
+        </span>
+        <span style={{ fontSize: 8, fontWeight: 500, opacity: 0.7 }}>
+          backend offline
+        </span>
       </div>
     );
   }
