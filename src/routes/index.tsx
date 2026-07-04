@@ -292,6 +292,13 @@ function Workspace() {
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(fragments.map((f) => [f.id, { ...f.place }])),
   );
+
+  // Backend integration (Python/FastAPI service under backend/).
+  const be = useBackend(fragments);
+  const [backendMetrics, setBackendMetrics] = useState<
+    import("@/lib/backend-hooks").AssemblyMetrics | null
+  >(null);
+
   const [inkLevels, setInkLevels] = useState<InkLevels>(() => {
     const init: InkLevels = {};
     fragments.forEach((f) =>
