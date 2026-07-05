@@ -1303,22 +1303,28 @@ function Workspace() {
   }, [activeCaseId, currentSnapshot, applySnapshot]);
 
   const createCase = useCallback(() => {
-    const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
-    const newCase: CaseRecord = {
-      id: `case-${Date.now()}`,
-      name: `Новый кейс ${nextIdx}`,
-      createdAt: Date.now(),
-      snapshot: emptySnapshot(),
-    };
-    setCases((prev) => [
-      ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
-      newCase,
-    ]);
-    applySnapshot(newCase.snapshot);
-    setActiveCaseId(newCase.id);
-    setSection("import");
-    setImportOpen(true);
-    toast("Создан новый кейс", { description: newCase.name });
+    try {
+      const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
+      const newCase: CaseRecord = {
+        id: `case-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: `Новый кейс ${nextIdx}`,
+        createdAt: Date.now(),
+        isDemo: false,
+        snapshot: emptySnapshot(),
+      };
+      setCases((prev) => [
+        ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+        newCase,
+      ]);
+      applySnapshot(newCase.snapshot);
+      setActiveCaseId(newCase.id);
+      setSection("import");
+      setImportOpen(true);
+      toast("Создан новый кейс", { description: newCase.name });
+    } catch (err) {
+      console.error("createCase failed", err);
+      toast.error("Не удалось создать кейс. Попробуйте ещё раз.");
+    }
   }, [cases, activeCaseId, currentSnapshot, applySnapshot]);
 
   const renameCase = useCallback((id: string, name: string) => {
