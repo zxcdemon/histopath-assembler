@@ -34,6 +34,27 @@ bun run dev
 bun run build
 ```
 
+### Проверка целостности файлов backend
+
+```bash
+python -m py_compile backend/main.py
+python -m py_compile backend/services/*.py
+docker compose config
+pip install -r backend/requirements.txt
+```
+
+Ожидаемый результат (без ошибок):
+
+```
+$ python -m py_compile backend/main.py        # → exit 0
+$ python -m py_compile backend/services/*.py  # → exit 0
+$ docker compose config                       # печатает валидный YAML
+$ pip install -r backend/requirements.txt     # ставит fastapi, uvicorn, ...
+```
+
+Если какая-то из команд падает — файл повреждён (склеен в одну строку
+или битый отступ). Перезалейте файл из репозитория заново.
+
 Откройте фронт (по умолчанию http://localhost:5173 / TanStack dev port).
 Сверху появится зелёная плашка «Backend подключён» — значит `.mrxs`
 пойдёт через OpenSlide, а `Экспорт` пишет реальный OME-TIFF.
