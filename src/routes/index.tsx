@@ -381,6 +381,16 @@ function Workspace() {
   const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // ============= Cases (demo + user cases) =============
+  const [initialCaseState] = useState(() => loadCasesFromStorage());
+  const [cases, setCases] = useState<CaseRecord[]>(initialCaseState.cases);
+  const [activeCaseId, setActiveCaseId] = useState<string>(initialCaseState.activeId);
+  const activeCase = useMemo(
+    () => cases.find((c) => c.id === activeCaseId) ?? cases[0],
+    [cases, activeCaseId],
+  );
+  const hasMountedRef = useRef(false);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   useEffect(() => {
     try { localStorage.setItem("htg-settings:v1", JSON.stringify(settings)); } catch { /* noop */ }
