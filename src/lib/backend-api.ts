@@ -80,7 +80,8 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 let _availability: Promise<boolean> | null = null;
-export function isAvailable(): Promise<boolean> {
+export function isAvailable(forceRefresh = false): Promise<boolean> {
+  if (forceRefresh) _availability = null;
   if (_availability) return _availability;
   _availability = (async () => {
     if (!BASE) return false;
@@ -96,10 +97,16 @@ export function isAvailable(): Promise<boolean> {
   return _availability;
 }
 
+export function resetBackendAvailability(): void {
+  _availability = null;
+}
+
 export const backend = {
   isConfigured: () => Boolean(BASE),
   isAvailable,
+  resetAvailability: resetBackendAvailability,
   assetUrl,
+
 
   createCase: (name?: string) =>
     jsonFetch<{ caseId: string; name: string }>("/cases", {
