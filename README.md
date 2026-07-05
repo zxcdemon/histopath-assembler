@@ -59,7 +59,7 @@ $ pip install -r backend/requirements.txt     # ставит fastapi, uvicorn, .
 Сверху появится зелёная плашка «Backend подключён» — значит `.mrxs`
 пойдёт через OpenSlide, а `Экспорт` пишет реальный OME-TIFF.
 
-Если плашка жёлтая («Модуль .mrxs недоступен») — backend не запущен
+Если плашка жёлтая («Демо-режим: PNG/JPG работают локально. Для .mrxs, тайлов и OME-TIFF подключите backend с OpenSlide.») — backend не запущен
 или недоступен по `VITE_BACKEND_URL`, и приложение работает только как
 browser-only demo (PNG/JPG-фрагменты, без .mrxs, без OME-TIFF).
 
