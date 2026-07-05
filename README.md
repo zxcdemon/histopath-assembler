@@ -31,6 +31,7 @@ python -m py_compile backend/services/*.py
 cp .env.example .env         # VITE_BACKEND_URL=http://localhost:8000
 bun install
 bun run dev
+bun run build
 ```
 
 Откройте фронт (по умолчанию http://localhost:5173 / TanStack dev port).
