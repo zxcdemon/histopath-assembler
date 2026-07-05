@@ -3,8 +3,10 @@
  *
  * The backend URL is configured via VITE_BACKEND_URL (e.g. http://localhost:8000).
  * If it's unset or unreachable, `isAvailable()` resolves false and the UI should
- * show the "Модуль .mrxs недоступен. Запустите backend-сервис." message.
+ * show: "Демо-режим: PNG/JPG работают локально. Для .mrxs, тайлов и OME-TIFF
+ * подключите backend с OpenSlide."
  */
+
 
 const BASE = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
 
