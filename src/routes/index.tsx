@@ -1584,7 +1584,7 @@ function Workspace() {
               onExport={exportComposite}
               hasPending={!!pendingPlacements}
             />
-          ) : (
+          ) : selected ? (
             <FragmentParams
               fragment={selected}
               placement={placements[selected.id]}
@@ -1599,6 +1599,10 @@ function Workspace() {
               inkOn={inkOn}
               setInkOn={setInkOn}
             />
+          ) : (
+            <div className="p-6 text-sm text-muted-foreground">
+              В этом кейсе пока нет фрагментов. Откройте раздел «Импорт», чтобы загрузить сканы.
+            </div>
           )}
 
         </aside>
