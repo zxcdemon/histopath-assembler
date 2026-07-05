@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from "react";
-import { Upload, X, FileImage, FileWarning, Loader2, ServerCrash, ServerCog, RefreshCw } from "lucide-react";
+import { useRef, useState, type DragEvent, type ChangeEvent } from "react";
+import { Upload, X, FileImage, FileWarning, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -61,26 +61,7 @@ export function ImportDialog({
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [backendReady, setBackendReady] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setBackendReady(null);
-
-    if (backendAvailable !== undefined) {
-      setBackendReady(backendAvailable);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    backend.isAvailable().then((ok) => !cancelled && setBackendReady(ok));
-    return () => {
-      cancelled = true;
-    };
-  }, [open, backendAvailable]);
 
   const addFiles = (files: FileList | File[]) => {
     const arr = Array.from(files);
@@ -145,7 +126,10 @@ export function ImportDialog({
       const valid = staged.filter((s) => s.kind !== "unsupported");
       const hasMrxs = valid.some((s) => s.kind === "mrxs");
 
-      const ready = backendAvailable ?? backendReady;
+      let ready = backendAvailable ?? null;
+      if (ready === null && hasMrxs) {
+        ready = await backend.isAvailable();
+      }
       let caseId: string | null = backendCaseId ?? null;
 
       if (ready && hasMrxs && !caseId) {
@@ -154,12 +138,11 @@ export function ImportDialog({
           caseId = c.caseId;
         } catch (e) {
           console.warn("createCase failed", e);
-          toast.error("Backend не отвечает", {
-            description: "Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.",
-          });
+          toast.error("Для .mrxs нужен backend с OpenSlide. Сейчас можно работать с PNG/JPG в демо-режиме.");
+          ready = false;
         }
       } else if (!ready && hasMrxs) {
-        toast.warning("Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.");
+        toast.warning("Для .mrxs нужен backend с OpenSlide. Сейчас можно работать с PNG/JPG в демо-режиме.");
       }
 
       const out: Fragment[] = [];
@@ -264,49 +247,8 @@ export function ImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div
-          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
-            backendReady
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : backendReady === false
-              ? "border-amber-200 bg-amber-50 text-amber-800"
-              : "border-border bg-secondary/40 text-muted-foreground"
-          }`}
-        >
-          {backendReady ? (
-            <>
-              <ServerCog className="h-3.5 w-3.5" />
-              <span className="flex-1">Backend подключён — .mrxs будет обработан на сервере.</span>
-            </>
-          ) : backendReady === false ? (
-            <>
-              <ServerCrash className="h-3.5 w-3.5" />
-              <span className="flex-1">
-                Демо-режим: PNG/JPG работают локально. Для .mrxs, тайлов и OME-TIFF подключите backend с OpenSlide.
-              </span>
-            </>
-          ) : (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span className="flex-1">Проверяем доступность backend…</span>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={async () => {
-              setBackendReady(null);
-              const ok = await backend.isAvailable(true);
-              setBackendReady(ok);
-              if (ok) toast.success("Backend доступен");
-              else toast.message("Backend недоступен", { description: "Демо-режим для PNG/JPG остаётся активным." });
-            }}
-            className="inline-flex items-center gap-1 rounded border border-current/20 px-1.5 py-0.5 text-[11px] hover:bg-black/5"
-            aria-label="Проверить backend"
-          >
-            <RefreshCw className="h-3 w-3" />
-            Проверить
-          </button>
-        </div>
+
+
 
 
 

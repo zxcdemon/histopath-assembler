@@ -49,6 +49,15 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
 
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { FRAGMENTS, FragmentImage, type Fragment } from "@/components/HistologyCanvas";
@@ -121,8 +130,99 @@ const MARKER_PALETTE = [
   "#111827", "#ef4444", "#3b82f6", "#22c55e",
   "#eab308", "#a855f7", "#f97316", "#06b6d4",
 ];
-const CASE_ID = "2025-05-20_Печень_Биопсия";
+const DEMO_CASE_ID = "2025-05-20_Печень_Биопсия";
+const DEMO_CASE_NAME = "2025-05-20_Печень_Биопсия";
+const CASES_STORAGE_KEY = "htg-cases:v3";
+const ACTIVE_CASE_STORAGE_KEY = "htg-active-case:v1";
+const CASE_ID = DEMO_CASE_ID; // legacy alias
 const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
+
+type CaseSnapshot = {
+  fragments: Fragment[];
+  placements: Record<string, Placement>;
+  strokes: MarkerStroke[];
+  controlPoints: ControlPoint[];
+  selectedId: string;
+  inkLevels: InkLevels;
+  inkVisible: InkVisibility;
+};
+
+type CaseRecord = {
+  id: string;
+  name: string;
+  createdAt: number;
+  isDemo?: boolean;
+  snapshot: CaseSnapshot;
+};
+
+function buildDemoSnapshot(): CaseSnapshot {
+  const frags = FRAGMENTS.map((f) => ({ ...f }));
+  const placements = Object.fromEntries(frags.map((f) => [f.id, { ...f.place }])) as Record<string, Placement>;
+  const inkLevels: InkLevels = {};
+  const inkVisible: InkVisibility = {};
+  frags.forEach((f) =>
+    INK_MARKERS.forEach((m) => {
+      inkLevels[inkKey(f.id, m.label)] = 66;
+      inkVisible[inkKey(f.id, m.label)] = true;
+    }),
+  );
+  // Restore persisted demo-case markers, if any.
+  let strokes: MarkerStroke[] = [];
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(MARKERS_STORAGE_KEY);
+      if (raw) strokes = JSON.parse(raw) as MarkerStroke[];
+    } catch { /* noop */ }
+  }
+  return {
+    fragments: frags,
+    placements,
+    strokes,
+    controlPoints: [],
+    selectedId: frags[0]?.id ?? "",
+    inkLevels,
+    inkVisible,
+  };
+}
+
+function emptySnapshot(): CaseSnapshot {
+  return {
+    fragments: [],
+    placements: {},
+    strokes: [],
+    controlPoints: [],
+    selectedId: "",
+    inkLevels: {},
+    inkVisible: {},
+  };
+}
+
+function loadCasesFromStorage(): { cases: CaseRecord[]; activeId: string } {
+  const demo: CaseRecord = {
+    id: DEMO_CASE_ID,
+    name: DEMO_CASE_NAME,
+    createdAt: 0,
+    isDemo: true,
+    snapshot: buildDemoSnapshot(),
+  };
+  if (typeof window === "undefined") {
+    return { cases: [demo], activeId: DEMO_CASE_ID };
+  }
+  try {
+    const raw = localStorage.getItem(CASES_STORAGE_KEY);
+    const stored: CaseRecord[] = raw ? JSON.parse(raw) : [];
+    const cases = stored.filter((c) => !c.isDemo);
+    // Try to restore stored demo snapshot (fragments moved etc.).
+    const storedDemo = stored.find((c) => c.isDemo);
+    if (storedDemo) demo.snapshot = { ...demo.snapshot, ...storedDemo.snapshot };
+    const all = [demo, ...cases];
+    const active = localStorage.getItem(ACTIVE_CASE_STORAGE_KEY) ?? DEMO_CASE_ID;
+    const activeId = all.some((c) => c.id === active) ? active : DEMO_CASE_ID;
+    return { cases: all, activeId };
+  } catch {
+    return { cases: [demo], activeId: DEMO_CASE_ID };
+  }
+}
 
 // ============= Image registration =============
 export type ControlPoint = {
@@ -281,6 +381,16 @@ function Workspace() {
   const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // ============= Cases (demo + user cases) =============
+  const [initialCaseState] = useState(() => loadCasesFromStorage());
+  const [cases, setCases] = useState<CaseRecord[]>(initialCaseState.cases);
+  const [activeCaseId, setActiveCaseId] = useState<string>(initialCaseState.activeId);
+  const activeCase = useMemo(
+    () => cases.find((c) => c.id === activeCaseId) ?? cases[0],
+    [cases, activeCaseId],
+  );
+  const hasMountedRef = useRef(false);
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   useEffect(() => {
     try { localStorage.setItem("htg-settings:v1", JSON.stringify(settings)); } catch { /* noop */ }
@@ -1127,8 +1237,134 @@ function Workspace() {
     toast("Восстановлено последнее сохранённое состояние");
   }, []);
 
+  // ============= Case management =============
+  const currentSnapshot = useCallback<() => CaseSnapshot>(() => ({
+    fragments,
+    placements,
+    strokes,
+    controlPoints,
+    selectedId,
+    inkLevels,
+    inkVisible,
+  }), [fragments, placements, strokes, controlPoints, selectedId, inkLevels, inkVisible]);
 
+  const applySnapshot = useCallback((snap: CaseSnapshot) => {
+    setFragments(snap.fragments.map((f) => ({ ...f })));
+    setPlacements({ ...snap.placements });
+    setStrokes([...snap.strokes]);
+    setControlPoints([...snap.controlPoints]);
+    setSelectedId(snap.selectedId || snap.fragments[0]?.id || "");
+    setInkLevels({ ...snap.inkLevels });
+    setInkVisible({ ...snap.inkVisible });
+    setHistory({ past: [], future: [] });
+    setPendingPlacements(null);
+    setRegPair(null);
+    setStrokePast([]);
+  }, []);
 
+  // Sync current in-memory state to the active case snapshot.
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    setCases((prev) =>
+      prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+    );
+  }, [fragments, placements, strokes, controlPoints, selectedId, inkLevels, inkVisible, activeCaseId, currentSnapshot]);
+
+  // Load stored active case snapshot on first mount (if it's not the initial demo).
+  useEffect(() => {
+    const c = cases.find((x) => x.id === activeCaseId);
+    if (c && activeCaseId !== DEMO_CASE_ID) applySnapshot(c.snapshot);
+    hasMountedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist cases + active id.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CASES_STORAGE_KEY, JSON.stringify(cases));
+    } catch { /* noop */ }
+  }, [cases]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_CASE_STORAGE_KEY, activeCaseId);
+    } catch { /* noop */ }
+  }, [activeCaseId]);
+
+  const switchCase = useCallback((id: string) => {
+    if (id === activeCaseId) return;
+    // Persist current before switching.
+    setCases((prev) => {
+      const withSaved = prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c));
+      const target = withSaved.find((c) => c.id === id);
+      if (target) applySnapshot(target.snapshot);
+      return withSaved;
+    });
+    setActiveCaseId(id);
+  }, [activeCaseId, currentSnapshot, applySnapshot]);
+
+  const createCase = useCallback(() => {
+    const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
+    const newCase: CaseRecord = {
+      id: `case-${Date.now()}`,
+      name: `Новый кейс ${nextIdx}`,
+      createdAt: Date.now(),
+      snapshot: emptySnapshot(),
+    };
+    setCases((prev) => [
+      ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+      newCase,
+    ]);
+    applySnapshot(newCase.snapshot);
+    setActiveCaseId(newCase.id);
+    setSection("import");
+    setImportOpen(true);
+    toast("Создан новый кейс", { description: newCase.name });
+  }, [cases, activeCaseId, currentSnapshot, applySnapshot]);
+
+  const renameCase = useCallback((id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCases((prev) => prev.map((c) => (c.id === id ? { ...c, name: trimmed } : c)));
+  }, []);
+
+  const duplicateCase = useCallback((id: string) => {
+    const src = cases.find((c) => c.id === id);
+    if (!src) return;
+    // Ensure freshest snapshot for the active case.
+    const snap = id === activeCaseId ? currentSnapshot() : src.snapshot;
+    const copy: CaseRecord = {
+      id: `case-${Date.now()}`,
+      name: `${src.name} (копия)`,
+      createdAt: Date.now(),
+      snapshot: JSON.parse(JSON.stringify(snap)),
+    };
+    setCases((prev) => [...prev, copy]);
+    toast("Кейс дублирован", { description: copy.name });
+  }, [cases, activeCaseId, currentSnapshot]);
+
+  const deleteCase = useCallback((id: string) => {
+    const target = cases.find((c) => c.id === id);
+    if (!target || target.isDemo) return;
+    setCases((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeCaseId) {
+      const fallback = cases.find((c) => c.id !== id) ?? cases[0];
+      if (fallback) {
+        applySnapshot(fallback.snapshot);
+        setActiveCaseId(fallback.id);
+      }
+    }
+    toast("Кейс удалён", { description: target.name });
+  }, [cases, activeCaseId, applySnapshot]);
+
+  const resetDemoCase = useCallback(() => {
+    const fresh = buildDemoSnapshot();
+    // Wipe any saved markers so the "reset" is complete.
+    try { localStorage.removeItem(MARKERS_STORAGE_KEY); } catch { /* noop */ }
+    fresh.strokes = [];
+    setCases((prev) => prev.map((c) => (c.id === DEMO_CASE_ID ? { ...c, snapshot: fresh } : c)));
+    if (activeCaseId === DEMO_CASE_ID) applySnapshot(fresh);
+    toast("Демо-кейс сброшен к исходному состоянию");
+  }, [activeCaseId, applySnapshot]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
@@ -1138,6 +1374,14 @@ function Workspace() {
         onRedo={redo}
         canUndo={history.past.length > 0}
         canRedo={history.future.length > 0}
+        cases={cases}
+        activeCaseId={activeCaseId}
+        onSwitchCase={switchCase}
+        onCreateCase={createCase}
+        onRenameCase={renameCase}
+        onDuplicateCase={duplicateCase}
+        onDeleteCase={deleteCase}
+        onResetDemoCase={resetDemoCase}
       />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
@@ -1523,13 +1767,44 @@ function TopBar({
   onRedo,
   canUndo,
   canRedo,
+  cases,
+  activeCaseId,
+  onSwitchCase,
+  onCreateCase,
+  onRenameCase,
+  onDuplicateCase,
+  onDeleteCase,
+  onResetDemoCase,
 }: {
   onOpenNav: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  cases: CaseRecord[];
+  activeCaseId: string;
+  onSwitchCase: (id: string) => void;
+  onCreateCase: () => void;
+  onRenameCase: (id: string, name: string) => void;
+  onDuplicateCase: (id: string) => void;
+  onDeleteCase: (id: string) => void;
+  onResetDemoCase: () => void;
 }) {
+  const active = cases.find((c) => c.id === activeCaseId) ?? cases[0];
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const startRename = (id: string, current: string) => {
+    setRenameId(id);
+    setRenameVal(current);
+  };
+  const commitRename = () => {
+    if (renameId) onRenameCase(renameId, renameVal);
+    setRenameId(null);
+    setRenameVal("");
+  };
+
   return (
     <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center gap-2 px-3 md:px-4">
       <button
@@ -1539,12 +1814,119 @@ function TopBar({
       >
         <Menu className="h-5 w-5" />
       </button>
-      <div className="hidden md:flex items-center gap-2 px-3.5 h-10 min-w-[320px] rounded-lg border border-border bg-background text-sm whitespace-nowrap">
-        <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground">Кейс:</span>
-        <span className="font-medium">2025-05-20_Печень_Биопсия</span>
-        <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="hidden md:flex items-center gap-2 px-3.5 h-10 min-w-[320px] max-w-[420px] rounded-lg border border-border bg-background text-sm whitespace-nowrap hover:bg-secondary/50 transition-colors">
+            <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Кейс:</span>
+            <span className="font-medium truncate">{active?.name ?? "—"}</span>
+            {active?.isDemo && (
+              <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-5">Демо</Badge>
+            )}
+            <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[360px]">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Кейсы</DropdownMenuLabel>
+          {cases.map((c) => {
+            const isActive = c.id === activeCaseId;
+            const isRenaming = renameId === c.id;
+            const isConfirmDel = confirmDeleteId === c.id;
+            return (
+              <div
+                key={c.id}
+                className={`group flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm ${isActive ? "bg-accent/60" : "hover:bg-accent"}`}
+              >
+                <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+                {isRenaming ? (
+                  <Input
+                    autoFocus
+                    value={renameVal}
+                    onChange={(e) => setRenameVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      else if (e.key === "Escape") { setRenameId(null); setRenameVal(""); }
+                    }}
+                    onBlur={commitRename}
+                    className="h-7 text-sm flex-1"
+                  />
+                ) : (
+                  <button
+                    className="flex-1 min-w-0 text-left truncate"
+                    onClick={() => onSwitchCase(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                )}
+                {c.isDemo && !isRenaming && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 shrink-0">Демо</Badge>
+                )}
+                {!isRenaming && !isConfirmDel && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    {!c.isDemo && (
+                      <button
+                        title="Переименовать"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                        onClick={(e) => { e.stopPropagation(); startRename(c.id, c.name); }}
+                      >
+                        <SlidersHorizontal className="h-3 w-3" />
+                      </button>
+                    )}
+                    <button
+                      title="Дублировать"
+                      className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                      onClick={(e) => { e.stopPropagation(); onDuplicateCase(c.id); }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                    {c.isDemo ? (
+                      <button
+                        title="Сбросить демо-кейс"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                        onClick={(e) => { e.stopPropagation(); onResetDemoCase(); }}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <button
+                        title="Удалить"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(c.id); }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {isConfirmDel && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      className="text-[11px] px-2 py-0.5 rounded bg-destructive text-destructive-foreground"
+                      onClick={(e) => { e.stopPropagation(); onDeleteCase(c.id); setConfirmDeleteId(null); }}
+                    >
+                      Удалить
+                    </button>
+                    <button
+                      className="text-[11px] px-2 py-0.5 rounded border border-border"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) => { e.preventDefault(); onCreateCase(); }}
+            className="cursor-pointer text-primary"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Добавить кейс
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <div className="ml-auto flex items-center gap-1">
         <IconBtn aria-label="Отменить" onClick={onUndo} disabled={!canUndo}>
           <Undo2 className="h-4 w-4" />
