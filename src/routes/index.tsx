@@ -1237,8 +1237,134 @@ function Workspace() {
     toast("Восстановлено последнее сохранённое состояние");
   }, []);
 
+  // ============= Case management =============
+  const currentSnapshot = useCallback<() => CaseSnapshot>(() => ({
+    fragments,
+    placements,
+    strokes,
+    controlPoints,
+    selectedId,
+    inkLevels,
+    inkVisible,
+  }), [fragments, placements, strokes, controlPoints, selectedId, inkLevels, inkVisible]);
 
+  const applySnapshot = useCallback((snap: CaseSnapshot) => {
+    setFragments(snap.fragments.map((f) => ({ ...f })));
+    setPlacements({ ...snap.placements });
+    setStrokes([...snap.strokes]);
+    setControlPoints([...snap.controlPoints]);
+    setSelectedId(snap.selectedId || snap.fragments[0]?.id || "");
+    setInkLevels({ ...snap.inkLevels });
+    setInkVisible({ ...snap.inkVisible });
+    setHistory({ past: [], future: [] });
+    setPendingPlacements(null);
+    setRegPair(null);
+    setStrokePast([]);
+  }, []);
 
+  // Sync current in-memory state to the active case snapshot.
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    setCases((prev) =>
+      prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+    );
+  }, [fragments, placements, strokes, controlPoints, selectedId, inkLevels, inkVisible, activeCaseId, currentSnapshot]);
+
+  // Load stored active case snapshot on first mount (if it's not the initial demo).
+  useEffect(() => {
+    const c = cases.find((x) => x.id === activeCaseId);
+    if (c && activeCaseId !== DEMO_CASE_ID) applySnapshot(c.snapshot);
+    hasMountedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist cases + active id.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CASES_STORAGE_KEY, JSON.stringify(cases));
+    } catch { /* noop */ }
+  }, [cases]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_CASE_STORAGE_KEY, activeCaseId);
+    } catch { /* noop */ }
+  }, [activeCaseId]);
+
+  const switchCase = useCallback((id: string) => {
+    if (id === activeCaseId) return;
+    // Persist current before switching.
+    setCases((prev) => {
+      const withSaved = prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c));
+      const target = withSaved.find((c) => c.id === id);
+      if (target) applySnapshot(target.snapshot);
+      return withSaved;
+    });
+    setActiveCaseId(id);
+  }, [activeCaseId, currentSnapshot, applySnapshot]);
+
+  const createCase = useCallback(() => {
+    const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
+    const newCase: CaseRecord = {
+      id: `case-${Date.now()}`,
+      name: `Новый кейс ${nextIdx}`,
+      createdAt: Date.now(),
+      snapshot: emptySnapshot(),
+    };
+    setCases((prev) => [
+      ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+      newCase,
+    ]);
+    applySnapshot(newCase.snapshot);
+    setActiveCaseId(newCase.id);
+    setSection("import");
+    setImportOpen(true);
+    toast("Создан новый кейс", { description: newCase.name });
+  }, [cases, activeCaseId, currentSnapshot, applySnapshot]);
+
+  const renameCase = useCallback((id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCases((prev) => prev.map((c) => (c.id === id ? { ...c, name: trimmed } : c)));
+  }, []);
+
+  const duplicateCase = useCallback((id: string) => {
+    const src = cases.find((c) => c.id === id);
+    if (!src) return;
+    // Ensure freshest snapshot for the active case.
+    const snap = id === activeCaseId ? currentSnapshot() : src.snapshot;
+    const copy: CaseRecord = {
+      id: `case-${Date.now()}`,
+      name: `${src.name} (копия)`,
+      createdAt: Date.now(),
+      snapshot: JSON.parse(JSON.stringify(snap)),
+    };
+    setCases((prev) => [...prev, copy]);
+    toast("Кейс дублирован", { description: copy.name });
+  }, [cases, activeCaseId, currentSnapshot]);
+
+  const deleteCase = useCallback((id: string) => {
+    const target = cases.find((c) => c.id === id);
+    if (!target || target.isDemo) return;
+    setCases((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeCaseId) {
+      const fallback = cases.find((c) => c.id !== id) ?? cases[0];
+      if (fallback) {
+        applySnapshot(fallback.snapshot);
+        setActiveCaseId(fallback.id);
+      }
+    }
+    toast("Кейс удалён", { description: target.name });
+  }, [cases, activeCaseId, applySnapshot]);
+
+  const resetDemoCase = useCallback(() => {
+    const fresh = buildDemoSnapshot();
+    // Wipe any saved markers so the "reset" is complete.
+    try { localStorage.removeItem(MARKERS_STORAGE_KEY); } catch { /* noop */ }
+    fresh.strokes = [];
+    setCases((prev) => prev.map((c) => (c.id === DEMO_CASE_ID ? { ...c, snapshot: fresh } : c)));
+    if (activeCaseId === DEMO_CASE_ID) applySnapshot(fresh);
+    toast("Демо-кейс сброшен к исходному состоянию");
+  }, [activeCaseId, applySnapshot]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
@@ -1248,6 +1374,14 @@ function Workspace() {
         onRedo={redo}
         canUndo={history.past.length > 0}
         canRedo={history.future.length > 0}
+        cases={cases}
+        activeCaseId={activeCaseId}
+        onSwitchCase={switchCase}
+        onCreateCase={createCase}
+        onRenameCase={renameCase}
+        onDuplicateCase={duplicateCase}
+        onDeleteCase={deleteCase}
+        onResetDemoCase={resetDemoCase}
       />
       <div className="flex-1 flex min-h-0">
         {/* Desktop nav */}
