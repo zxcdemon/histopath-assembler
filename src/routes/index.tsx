@@ -1303,22 +1303,28 @@ function Workspace() {
   }, [activeCaseId, currentSnapshot, applySnapshot]);
 
   const createCase = useCallback(() => {
-    const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
-    const newCase: CaseRecord = {
-      id: `case-${Date.now()}`,
-      name: `Новый кейс ${nextIdx}`,
-      createdAt: Date.now(),
-      snapshot: emptySnapshot(),
-    };
-    setCases((prev) => [
-      ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
-      newCase,
-    ]);
-    applySnapshot(newCase.snapshot);
-    setActiveCaseId(newCase.id);
-    setSection("import");
-    setImportOpen(true);
-    toast("Создан новый кейс", { description: newCase.name });
+    try {
+      const nextIdx = cases.filter((c) => !c.isDemo).length + 1;
+      const newCase: CaseRecord = {
+        id: `case-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: `Новый кейс ${nextIdx}`,
+        createdAt: Date.now(),
+        isDemo: false,
+        snapshot: emptySnapshot(),
+      };
+      setCases((prev) => [
+        ...prev.map((c) => (c.id === activeCaseId ? { ...c, snapshot: currentSnapshot() } : c)),
+        newCase,
+      ]);
+      applySnapshot(newCase.snapshot);
+      setActiveCaseId(newCase.id);
+      setSection("import");
+      setImportOpen(true);
+      toast("Создан новый кейс", { description: newCase.name });
+    } catch (err) {
+      console.error("createCase failed", err);
+      toast.error("Не удалось создать кейс. Попробуйте ещё раз.");
+    }
   }, [cases, activeCaseId, currentSnapshot, applySnapshot]);
 
   const renameCase = useCallback((id: string, name: string) => {
@@ -1476,7 +1482,7 @@ function Workspace() {
           ) : (
             <Canvas
               fragments={fragments}
-              selectedId={selected.id}
+              selectedId={selected?.id ?? ""}
               onSelect={setSelectedId}
               zoom={zoom}
               setZoom={setZoom}
@@ -1511,7 +1517,7 @@ function Workspace() {
           {bottomOpen ? (
             <BottomBar
               fragments={fragments}
-              selectedId={selected.id}
+              selectedId={selected?.id ?? ""}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
               metrics={assemblyMetrics}
@@ -1531,7 +1537,7 @@ function Workspace() {
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
-          {paintMode && (
+          {paintMode && selected && (
             <MarkerTools
               fragment={selected}
               strokes={strokes}
@@ -1584,7 +1590,7 @@ function Workspace() {
               onExport={exportComposite}
               hasPending={!!pendingPlacements}
             />
-          ) : (
+          ) : selected ? (
             <FragmentParams
               fragment={selected}
               placement={placements[selected.id]}
@@ -1599,6 +1605,10 @@ function Workspace() {
               inkOn={inkOn}
               setInkOn={setInkOn}
             />
+          ) : (
+            <div className="p-6 text-sm text-muted-foreground">
+              В этом кейсе пока нет фрагментов. Откройте раздел «Импорт», чтобы загрузить сканы.
+            </div>
           )}
 
         </aside>
@@ -1606,7 +1616,7 @@ function Workspace() {
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
           <SheetContent side="right" className="p-0 w-[320px] max-w-[90vw] overflow-y-auto">
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
-            {paintMode && (
+            {paintMode && selected && (
               <MarkerTools
                 fragment={selected}
                 strokes={strokes}
@@ -1659,7 +1669,7 @@ function Workspace() {
                 onExport={exportComposite}
                 hasPending={!!pendingPlacements}
               />
-            ) : (
+            ) : selected ? (
               <FragmentParams
                 fragment={selected}
                 placement={placements[selected.id]}
@@ -1674,6 +1684,10 @@ function Workspace() {
                 inkOn={inkOn}
                 setInkOn={setInkOn}
               />
+            ) : (
+              <div className="p-6 text-sm text-muted-foreground">
+                Нет фрагментов в кейсе. Загрузите файлы в разделе «Импорт».
+              </div>
             )}
 
           </SheetContent>
