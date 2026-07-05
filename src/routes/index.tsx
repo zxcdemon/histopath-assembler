@@ -130,8 +130,99 @@ const MARKER_PALETTE = [
   "#111827", "#ef4444", "#3b82f6", "#22c55e",
   "#eab308", "#a855f7", "#f97316", "#06b6d4",
 ];
-const CASE_ID = "2025-05-20_Печень_Биопсия";
+const DEMO_CASE_ID = "2025-05-20_Печень_Биопсия";
+const DEMO_CASE_NAME = "2025-05-20_Печень_Биопсия";
+const CASES_STORAGE_KEY = "htg-cases:v3";
+const ACTIVE_CASE_STORAGE_KEY = "htg-active-case:v1";
+const CASE_ID = DEMO_CASE_ID; // legacy alias
 const MARKERS_STORAGE_KEY = `htg-markers:${CASE_ID}`;
+
+type CaseSnapshot = {
+  fragments: Fragment[];
+  placements: Record<string, Placement>;
+  strokes: MarkerStroke[];
+  controlPoints: ControlPoint[];
+  selectedId: string;
+  inkLevels: InkLevels;
+  inkVisible: InkVisibility;
+};
+
+type CaseRecord = {
+  id: string;
+  name: string;
+  createdAt: number;
+  isDemo?: boolean;
+  snapshot: CaseSnapshot;
+};
+
+function buildDemoSnapshot(): CaseSnapshot {
+  const frags = FRAGMENTS.map((f) => ({ ...f }));
+  const placements = Object.fromEntries(frags.map((f) => [f.id, { ...f.place }])) as Record<string, Placement>;
+  const inkLevels: InkLevels = {};
+  const inkVisible: InkVisibility = {};
+  frags.forEach((f) =>
+    INK_MARKERS.forEach((m) => {
+      inkLevels[inkKey(f.id, m.label)] = 66;
+      inkVisible[inkKey(f.id, m.label)] = true;
+    }),
+  );
+  // Restore persisted demo-case markers, if any.
+  let strokes: MarkerStroke[] = [];
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(MARKERS_STORAGE_KEY);
+      if (raw) strokes = JSON.parse(raw) as MarkerStroke[];
+    } catch { /* noop */ }
+  }
+  return {
+    fragments: frags,
+    placements,
+    strokes,
+    controlPoints: [],
+    selectedId: frags[0]?.id ?? "",
+    inkLevels,
+    inkVisible,
+  };
+}
+
+function emptySnapshot(): CaseSnapshot {
+  return {
+    fragments: [],
+    placements: {},
+    strokes: [],
+    controlPoints: [],
+    selectedId: "",
+    inkLevels: {},
+    inkVisible: {},
+  };
+}
+
+function loadCasesFromStorage(): { cases: CaseRecord[]; activeId: string } {
+  const demo: CaseRecord = {
+    id: DEMO_CASE_ID,
+    name: DEMO_CASE_NAME,
+    createdAt: 0,
+    isDemo: true,
+    snapshot: buildDemoSnapshot(),
+  };
+  if (typeof window === "undefined") {
+    return { cases: [demo], activeId: DEMO_CASE_ID };
+  }
+  try {
+    const raw = localStorage.getItem(CASES_STORAGE_KEY);
+    const stored: CaseRecord[] = raw ? JSON.parse(raw) : [];
+    const cases = stored.filter((c) => !c.isDemo);
+    // Try to restore stored demo snapshot (fragments moved etc.).
+    const storedDemo = stored.find((c) => c.isDemo);
+    if (storedDemo) demo.snapshot = { ...demo.snapshot, ...storedDemo.snapshot };
+    const all = [demo, ...cases];
+    const active = localStorage.getItem(ACTIVE_CASE_STORAGE_KEY) ?? DEMO_CASE_ID;
+    const activeId = all.some((c) => c.id === active) ? active : DEMO_CASE_ID;
+    return { cases: all, activeId };
+  } catch {
+    return { cases: [demo], activeId: DEMO_CASE_ID };
+  }
+}
 
 // ============= Image registration =============
 export type ControlPoint = {
