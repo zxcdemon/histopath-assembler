@@ -1531,7 +1531,7 @@ function Workspace() {
 
         {/* Desktop right panel */}
         <aside className="hidden lg:block w-[300px] border-l border-border bg-panel overflow-y-auto">
-          {paintMode && (
+          {paintMode && selected && (
             <MarkerTools
               fragment={selected}
               strokes={strokes}
