@@ -1610,7 +1610,7 @@ function Workspace() {
         <Sheet open={paramsOpen} onOpenChange={setParamsOpen}>
           <SheetContent side="right" className="p-0 w-[320px] max-w-[90vw] overflow-y-auto">
             <SheetTitle className="sr-only">Параметры фрагмента</SheetTitle>
-            {paintMode && (
+            {paintMode && selected && (
               <MarkerTools
                 fragment={selected}
                 strokes={strokes}
@@ -1663,7 +1663,7 @@ function Workspace() {
                 onExport={exportComposite}
                 hasPending={!!pendingPlacements}
               />
-            ) : (
+            ) : selected ? (
               <FragmentParams
                 fragment={selected}
                 placement={placements[selected.id]}
@@ -1678,6 +1678,10 @@ function Workspace() {
                 inkOn={inkOn}
                 setInkOn={setInkOn}
               />
+            ) : (
+              <div className="p-6 text-sm text-muted-foreground">
+                Нет фрагментов в кейсе. Загрузите файлы в разделе «Импорт».
+              </div>
             )}
 
           </SheetContent>
