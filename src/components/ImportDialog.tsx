@@ -61,26 +61,7 @@ export function ImportDialog({
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [backendReady, setBackendReady] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setBackendReady(null);
-
-    if (backendAvailable !== undefined) {
-      setBackendReady(backendAvailable);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    backend.isAvailable().then((ok) => !cancelled && setBackendReady(ok));
-    return () => {
-      cancelled = true;
-    };
-  }, [open, backendAvailable]);
 
   const addFiles = (files: FileList | File[]) => {
     const arr = Array.from(files);
