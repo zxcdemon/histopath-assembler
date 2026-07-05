@@ -56,12 +56,11 @@ $ pip install -r backend/requirements.txt     # ставит fastapi, uvicorn, .
 или битый отступ). Перезалейте файл из репозитория заново.
 
 Откройте фронт (по умолчанию http://localhost:5173 / TanStack dev port).
-Сверху появится зелёная плашка «Backend подключён» — значит `.mrxs`
-пойдёт через OpenSlide, а `Экспорт` пишет реальный OME-TIFF.
+Статус backend отображается в интерфейсе (в окне «Импорт» есть индикатор и
+кнопка «Проверить»). Если backend недоступен, приложение работает в
+browser-only demo-режиме для PNG/JPG: `.mrxs`, тайлы и OME-TIFF требуют
+подключённого backend с OpenSlide.
 
-Если плашка жёлтая («Демо-режим: PNG/JPG работают локально. Для .mrxs, тайлов и OME-TIFF подключите backend с OpenSlide.») — backend не запущен
-или недоступен по `VITE_BACKEND_URL`, и приложение работает только как
-browser-only demo (PNG/JPG-фрагменты, без .mrxs, без OME-TIFF).
 
 ### Backend локально (без Docker)
 

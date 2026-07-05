@@ -3,8 +3,10 @@
  *
  * The backend URL is configured via VITE_BACKEND_URL (e.g. http://localhost:8000).
  * If it's unset or unreachable, `isAvailable()` resolves false and the UI should
- * show the "Модуль .mrxs недоступен. Запустите backend-сервис." message.
+ * show: "Демо-режим: PNG/JPG работают локально. Для .mrxs, тайлов и OME-TIFF
+ * подключите backend с OpenSlide."
  */
+
 
 const BASE = (import.meta.env.VITE_BACKEND_URL || "").replace(/\/$/, "");
 
@@ -78,7 +80,8 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 let _availability: Promise<boolean> | null = null;
-export function isAvailable(): Promise<boolean> {
+export function isAvailable(forceRefresh = false): Promise<boolean> {
+  if (forceRefresh) _availability = null;
   if (_availability) return _availability;
   _availability = (async () => {
     if (!BASE) return false;
@@ -94,10 +97,16 @@ export function isAvailable(): Promise<boolean> {
   return _availability;
 }
 
+export function resetBackendAvailability(): void {
+  _availability = null;
+}
+
 export const backend = {
   isConfigured: () => Boolean(BASE),
   isAvailable,
+  resetAvailability: resetBackendAvailability,
   assetUrl,
+
 
   createCase: (name?: string) =>
     jsonFetch<{ caseId: string; name: string }>("/cases", {
