@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ChangeEvent } from "react";
-import { Upload, X, FileImage, FileWarning, Loader2, ServerCrash, ServerCog } from "lucide-react";
+import { Upload, X, FileImage, FileWarning, Loader2, ServerCrash, ServerCog, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
