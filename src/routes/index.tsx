@@ -1767,13 +1767,44 @@ function TopBar({
   onRedo,
   canUndo,
   canRedo,
+  cases,
+  activeCaseId,
+  onSwitchCase,
+  onCreateCase,
+  onRenameCase,
+  onDuplicateCase,
+  onDeleteCase,
+  onResetDemoCase,
 }: {
   onOpenNav: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  cases: CaseRecord[];
+  activeCaseId: string;
+  onSwitchCase: (id: string) => void;
+  onCreateCase: () => void;
+  onRenameCase: (id: string, name: string) => void;
+  onDuplicateCase: (id: string) => void;
+  onDeleteCase: (id: string) => void;
+  onResetDemoCase: () => void;
 }) {
+  const active = cases.find((c) => c.id === activeCaseId) ?? cases[0];
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const startRename = (id: string, current: string) => {
+    setRenameId(id);
+    setRenameVal(current);
+  };
+  const commitRename = () => {
+    if (renameId) onRenameCase(renameId, renameVal);
+    setRenameId(null);
+    setRenameVal("");
+  };
+
   return (
     <header className="h-14 shrink-0 border-b border-border bg-panel flex items-center gap-2 px-3 md:px-4">
       <button
@@ -1783,12 +1814,119 @@ function TopBar({
       >
         <Menu className="h-5 w-5" />
       </button>
-      <div className="hidden md:flex items-center gap-2 px-3.5 h-10 min-w-[320px] rounded-lg border border-border bg-background text-sm whitespace-nowrap">
-        <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground">Кейс:</span>
-        <span className="font-medium">2025-05-20_Печень_Биопсия</span>
-        <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="hidden md:flex items-center gap-2 px-3.5 h-10 min-w-[320px] max-w-[420px] rounded-lg border border-border bg-background text-sm whitespace-nowrap hover:bg-secondary/50 transition-colors">
+            <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Кейс:</span>
+            <span className="font-medium truncate">{active?.name ?? "—"}</span>
+            {active?.isDemo && (
+              <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-5">Демо</Badge>
+            )}
+            <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[360px]">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Кейсы</DropdownMenuLabel>
+          {cases.map((c) => {
+            const isActive = c.id === activeCaseId;
+            const isRenaming = renameId === c.id;
+            const isConfirmDel = confirmDeleteId === c.id;
+            return (
+              <div
+                key={c.id}
+                className={`group flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm ${isActive ? "bg-accent/60" : "hover:bg-accent"}`}
+              >
+                <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+                {isRenaming ? (
+                  <Input
+                    autoFocus
+                    value={renameVal}
+                    onChange={(e) => setRenameVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      else if (e.key === "Escape") { setRenameId(null); setRenameVal(""); }
+                    }}
+                    onBlur={commitRename}
+                    className="h-7 text-sm flex-1"
+                  />
+                ) : (
+                  <button
+                    className="flex-1 min-w-0 text-left truncate"
+                    onClick={() => onSwitchCase(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                )}
+                {c.isDemo && !isRenaming && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 shrink-0">Демо</Badge>
+                )}
+                {!isRenaming && !isConfirmDel && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    {!c.isDemo && (
+                      <button
+                        title="Переименовать"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                        onClick={(e) => { e.stopPropagation(); startRename(c.id, c.name); }}
+                      >
+                        <SlidersHorizontal className="h-3 w-3" />
+                      </button>
+                    )}
+                    <button
+                      title="Дублировать"
+                      className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                      onClick={(e) => { e.stopPropagation(); onDuplicateCase(c.id); }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                    {c.isDemo ? (
+                      <button
+                        title="Сбросить демо-кейс"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-muted-foreground"
+                        onClick={(e) => { e.stopPropagation(); onResetDemoCase(); }}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <button
+                        title="Удалить"
+                        className="h-6 w-6 rounded hover:bg-background flex items-center justify-center text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(c.id); }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {isConfirmDel && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      className="text-[11px] px-2 py-0.5 rounded bg-destructive text-destructive-foreground"
+                      onClick={(e) => { e.stopPropagation(); onDeleteCase(c.id); setConfirmDeleteId(null); }}
+                    >
+                      Удалить
+                    </button>
+                    <button
+                      className="text-[11px] px-2 py-0.5 rounded border border-border"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) => { e.preventDefault(); onCreateCase(); }}
+            className="cursor-pointer text-primary"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Добавить кейс
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <div className="ml-auto flex items-center gap-1">
         <IconBtn aria-label="Отменить" onClick={onUndo} disabled={!canUndo}>
           <Undo2 className="h-4 w-4" />
