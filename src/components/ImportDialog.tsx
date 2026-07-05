@@ -126,7 +126,10 @@ export function ImportDialog({
       const valid = staged.filter((s) => s.kind !== "unsupported");
       const hasMrxs = valid.some((s) => s.kind === "mrxs");
 
-      const ready = backendAvailable ?? backendReady;
+      let ready = backendAvailable ?? null;
+      if (ready === null && hasMrxs) {
+        ready = await backend.isAvailable();
+      }
       let caseId: string | null = backendCaseId ?? null;
 
       if (ready && hasMrxs && !caseId) {
@@ -135,12 +138,11 @@ export function ImportDialog({
           caseId = c.caseId;
         } catch (e) {
           console.warn("createCase failed", e);
-          toast.error("Backend не отвечает", {
-            description: "Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.",
-          });
+          toast.error("Для .mrxs нужен backend с OpenSlide. Сейчас можно работать с PNG/JPG в демо-режиме.");
+          ready = false;
         }
       } else if (!ready && hasMrxs) {
-        toast.warning("Для .mrxs нужен локальный backend с OpenSlide. Сейчас можно работать с PNG/JPG.");
+        toast.warning("Для .mrxs нужен backend с OpenSlide. Сейчас можно работать с PNG/JPG в демо-режиме.");
       }
 
       const out: Fragment[] = [];
