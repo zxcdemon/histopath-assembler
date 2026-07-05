@@ -1476,7 +1476,7 @@ function Workspace() {
           ) : (
             <Canvas
               fragments={fragments}
-              selectedId={selected.id}
+              selectedId={selected?.id ?? ""}
               onSelect={setSelectedId}
               zoom={zoom}
               setZoom={setZoom}
@@ -1511,7 +1511,7 @@ function Workspace() {
           {bottomOpen ? (
             <BottomBar
               fragments={fragments}
-              selectedId={selected.id}
+              selectedId={selected?.id ?? ""}
               onSelect={setSelectedId}
               onCollapse={() => setBottomOpen(false)}
               metrics={assemblyMetrics}
